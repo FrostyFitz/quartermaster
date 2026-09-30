@@ -265,7 +265,7 @@ Auto-detected cmux prints a stderr notice naming `config/backend` and `--backend
 
 ### Accepted backends and secondmate limits
 
-Any value other than `tmux` or `cmux` is rejected until another adapter is implemented and verified.
+Firstmate documents a setup path only for `tmux` and `cmux`; `bin/fm-backend.sh`'s spawn-capable set (`FM_BACKEND_SPAWN`) still recognizes `herdr`, `zellij`, and `orca` at the backend layer, but none of the three has a supported setup guide and none is part of the current onboarding surface.
 `fm-spawn.sh` accepts `tmux` and `cmux` for ship and scout tasks; `backend=cmux` still refuses `--secondmate` until secondmate launch semantics are designed for it.
 
 ### Liveness classification
