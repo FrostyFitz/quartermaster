@@ -340,9 +340,17 @@ if [ "$STEAL_LIVE" = 1 ]; then
   # explicitly accepted here, but only as a BOUNDED one: the restore backstop
   # must have put the anchor back exactly, and the whole exposure must end with
   # the operation rather than parking the captain somewhere else.
-  [ "$C_WRONG" -ge 1 ] \
-    || fail 'Part C reached the fallback on a defective release but observed no wrong-focus sample at all, so the sampler proved nothing'
-  pass "fallback on a defective release: a bounded wrong-focus window of $C_WRONG samples was fully restored to the anchor"
+  # Proof that a wrong-focus window actually occurred comes from the call log,
+  # not the live sampler: fm_backend_herdr_projection_focus_restore only issues
+  # `tab focus` when its own post-close snapshot already differs from $C_BEFORE
+  # (see bin/backends/herdr.sh), so that call is a deterministic record of the
+  # theft. The busy-poll sampler above cannot be trusted for a pass/fail gate -
+  # it can legitimately observe zero samples during a very short window under
+  # CI load even though the theft happened - so it is kept for the informational
+  # sample count below only.
+  grep -q '^tab focus' "$C_CALL_LOG" \
+    || fail 'Part C reached the fallback on a defective release but the call log shows no corrective tab focus, so no wrong-focus window was ever proven'
+  pass "fallback on a defective release: a wrong-focus window (confirmed by the corrective tab focus call, $C_WRONG live samples caught) was fully restored to the anchor"
 else
   [ "$C_WRONG" -eq 0 ] \
     || fail "a focus-preserving release exposed $C_WRONG wrong-focus samples on the fallback path"
