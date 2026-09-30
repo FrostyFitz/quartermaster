@@ -93,8 +93,7 @@
 # rendered-text busy fallbacks that survive the redesign, because none of their
 # structured lifecycles was credited-live-verified
 # in the approved audit (Rovo's clean ACP stopReason lives outside the TUI
-# path firstmate drives, see references/harness/rovo.md; agy 1.2.0 exposes no
-# hook surface at all, see references/harness/agy.md); each is scoped to
+# path firstmate drives; agy 1.2.0 exposes no hook surface at all); each is scoped to
 # its own harness= and can never classify another adapter. The delivery
 # guards in bin/fm-composer-lib.sh match rendered footers for submit
 # acknowledgement and away-mode supervisor injection only; neither is a
@@ -331,8 +330,7 @@ fm_busy_record_read() {  # <state-dir> <id>
 # only the normalized muse harness identity, while session metadata records
 # semver 0.1.0 plus a build SHA that cannot be matched against it. Resolution
 # failures - no sidecar, no matching log, an unreadable or run-free log - remain
-# unknown because those prove nothing about the turn either way. See
-# docs/verification/muse.md for the evidence.
+# unknown because those prove nothing about the turn either way.
 # fm_busy_muse_binding_path: the per-task sidecar fm-spawn writes so the
 # classifier binds a pane to its session log without re-deriving muse's data
 # directory. It records sessions_root=<abs>, workspace_root=<abs>, one
@@ -973,10 +971,9 @@ fm_busy_pi_launch_prompt_tail() {
 # render. The auth-method picker's live capture is also what proved the
 # full-capture match necessary: its heading renders more than 12 non-blank-
 # looking lines above the bordered box's bottom border. The API-key entry
-# screen is carried over from .agents/skills/harness-adapters/references/
-# harness/gemini.md "Trust, and why the two documented options are not
-# equivalent" rather than this guard's own live capture, and stays a single
-# marker: it is reached only after actively selecting that auth method, so
+# screen's text is carried over from an earlier capture rather than this
+# guard's own live run, and stays a single marker: it is reached only after
+# actively selecting that auth method, so
 # self-referential prose is a materially smaller risk there.
 fm_busy_gemini_launch_prompt_tail() {
   local buf
