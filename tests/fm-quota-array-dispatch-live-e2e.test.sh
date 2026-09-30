@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # Credentialed behavior regression for the agent-owned quota-array-dispatch skill.
 #
-# This drives the public Pi skill-loading interface against a fake quota-axi
-# executable rather than parsing instruction source bytes or recreating the
-# selector in test code. The fake serves default TOON from the schema-5 JSON
-# fixture; --json remains available so a TOON-first skill cannot silently
-# fall back without the call log catching it.
+# This drives the public Claude Code skill-loading interface against a fake
+# quota-axi executable rather than parsing instruction source bytes or
+# recreating the selector in test code. The fake serves default TOON from the
+# schema-5 JSON fixture; --json remains available so a TOON-first skill
+# cannot silently fall back without the call log catching it.
+#
+# quartermaster ships Claude Code as the sole verified harness, so this guard
+# only ever launches a real claude process; a live e2e test never launches a
+# real non-Claude harness binary. The fixture's "claude"/"codex" rows are
+# synthetic candidate-provider labels the skill's selection algorithm reasons
+# over, not a claim about which harness executes the test.
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-fm_live_gate opt-in FM_QUOTA_ARRAY_DISPATCH_LIVE_E2E pi python3
+fm_live_gate opt-in FM_QUOTA_ARRAY_DISPATCH_LIVE_E2E claude python3
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OWNER="$ROOT/.agents/skills/quota-array-dispatch/SKILL.md"
@@ -28,14 +34,18 @@ PROJECT="$LAB/project"
 FAKEBIN="$LAB/fakebin"
 FIXTURE="$LAB/quota.json"
 CALLS="$LAB/quota-axi.calls"
+CLAUDE_CONFIG_DIR="$LAB/claude-config"
 
 cleanup() {
   rm -rf "$LAB"
 }
 trap cleanup EXIT
 
-mkdir -p "$PROJECT/.agents/skills/quota-array-dispatch" "$FAKEBIN"
-cp "$OWNER" "$PROJECT/.agents/skills/quota-array-dispatch/SKILL.md"
+# The project's own .claude/skills carries only this one skill (Claude Code's
+# shipped auto-load path, same pattern as tests/fm-calm-claude-mod-live-e2e.test.sh),
+# so the model can trigger nothing else.
+mkdir -p "$PROJECT/.claude/skills" "$FAKEBIN" "$CLAUDE_CONFIG_DIR"
+ln -s "$ROOT/.agents/skills/quota-array-dispatch" "$PROJECT/.claude/skills/quota-array-dispatch"
 
 cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
@@ -158,18 +168,28 @@ write_fixture() {
   cat > "$FIXTURE"
 }
 
+# Claude Code refuses to nest inside another Claude session, so the inherited
+# session markers are dropped for this launch only (same pattern as
+# tests/fm-calm-claude-mod-live-e2e.test.sh's unset_inherited).
+unset_inherited_claude_env() {
+  local name
+  while IFS= read -r name; do
+    printf -- '-u %s ' "$name"
+  done < <(env | grep -E '^(CLAUDECODE|CLAUDE_CODE_[A-Z_]+)=' | cut -d= -f1 | sort -u)
+}
+
 run_case() {
   local label=$1 expected=$2 expected_calls=$3 prompt=$4 out calls required
   shift 4
   : > "$CALLS"
+  # shellcheck disable=SC2046  # deliberate: each printed token is a bare -u NAME pair
   out=$(
     cd "$PROJECT" &&
-      PATH="$FAKEBIN:$PATH" QUOTA_AXI_CALLS="$CALLS" QUOTA_AXI_FIXTURE="$FIXTURE" \
-        pi --print --approve --no-session --no-context-files --no-extensions \
-          --no-skills --skill .agents/skills --tools bash \
-          --model openai-codex/gpt-5.6-sol --thinking high \
-          "$prompt"
-  ) || fail "$label: Pi skill run failed: $out"
+      env $(unset_inherited_claude_env) \
+        PATH="$FAKEBIN:$PATH" QUOTA_AXI_CALLS="$CALLS" QUOTA_AXI_FIXTURE="$FIXTURE" \
+        CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+        claude -p --permission-mode bypassPermissions --model haiku "$prompt"
+  ) || fail "$label: Claude skill run failed: $out"
   calls=$(cat "$CALLS")
   [ "$calls" = "$expected_calls" ] || fail "$label: unexpected quota-axi call sequence: $calls"
   printf '%s\n' "$out" | grep -Fxq "$expected" \
