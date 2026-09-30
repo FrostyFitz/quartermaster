@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# Live guard for the supervision host's dialog-mirror writers
-# (bin/fm-host-mirror.sh, docs/supervision-host.md "The dialog mirror"): each
-# INSTALLED primary harness with a mirror writer (Claude and Cursor)
-# runs one real prompt in a fixture primary checkout that carries this repo's
-# tracked mirror registrations, and the mirror must record the captain's prompt
-# and main's reply. The writers read vendor hook payloads, so only the real
-# harness can prove them. Opt-in because it submits prompts:
+# Live guard for the supervision host's dialog-mirror writer
+# (bin/fm-host-mirror.sh, docs/supervision-host.md "The dialog mirror"): the
+# installed Claude primary runs one real prompt in a fixture primary checkout
+# that carries this repo's tracked mirror registrations, and the mirror must
+# record the captain's prompt and main's reply. The writer reads vendor hook
+# payloads, so only the real harness can prove it. Opt-in because it submits
+# prompts:
 #
 #   FM_HOST_MIRROR_LIVE_E2E=1 tests/fm-host-mirror-live-e2e.test.sh
 #
-# FM_HOST_MIRROR_LIVE_HARNESSES (default "claude cursor") narrows the set. An
-# absent harness is reported, never passed over silently, and a run that
-# checked no harness fails. Cursor fires project hooks only in an interactive
-# session, and Claude must show that a turn it starts itself (its Stop-hook
-# rewake, which it submits as a prompt) is not mirrored as the captain's
-# words, so every harness runs in a private tmux server.
+# quartermaster ships Claude Code as the sole verified harness, so this guard
+# only ever launches a real claude process; a live e2e test never launches a
+# real non-Claude harness binary. Claude must show that a turn it starts
+# itself (its Stop-hook rewake, which it submits as a prompt) is not mirrored
+# as the captain's words, so the harness runs in a private tmux server.
 # shellcheck disable=SC2016 # single-quoted scripts expand inside their own shells
 set -u
 
@@ -23,7 +22,7 @@ set -u
 
 fm_live_gate opt-in FM_HOST_MIRROR_LIVE_E2E jq tmux
 
-HARNESSES=${FM_HOST_MIRROR_LIVE_HARNESSES:-claude cursor}
+HARNESSES=${FM_HOST_MIRROR_LIVE_HARNESSES:-claude}
 LAB=$(fm_test_tmproot fm-host-mirror-live)
 SOCKET="fmhm-$$"
 PROMPT='Reply with exactly the word mirror-ok and nothing else.'
@@ -34,7 +33,8 @@ cleanup() {
   local harness
   # One private tmux server per harness, so a server that is shutting down
   # after one harness's session ends can never swallow the next session.
-  for harness in claude cursor; do
+  # shellcheck disable=SC2043 # single-member on purpose: quartermaster verifies only claude
+  for harness in claude; do
     tmux -L "$SOCKET-$harness" kill-server >/dev/null 2>&1 || true
   done
   fm_test_cleanup
@@ -46,15 +46,13 @@ unset FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_CONFIG_OVERRIDE TMUX TMUX_PA
 # other hook of this repo runs in it.
 make_primary() {  # <name>
   local root="$LAB/$1"
-  mkdir -p "$root/state" "$root/config" "$root/.claude" "$root/.cursor"
+  mkdir -p "$root/state" "$root/config" "$root/.claude"
   git init -q "$root"
   : > "$root/AGENTS.md"
   : > "$root/config/supervision-host"
   ln -s "$ROOT/bin" "$root/bin"
   jq '.hooks |= (with_entries(.value |= (map(.hooks |= map(select(.command | contains("fm-host-mirror.sh")))) | map(select(.hooks | length > 0)))) | with_entries(select(.value | length > 0))) | {hooks}' \
     "$ROOT/.claude/settings.json" > "$root/.claude/settings.json"
-  jq '.hooks |= (with_entries(.value |= map(select(.command | contains("fm-host-mirror.sh")))) | with_entries(select(.value | length > 0)))' \
-    "$ROOT/.cursor/hooks.json" > "$root/.cursor/hooks.json"
   printf '%s\n' "$root"
 }
 
@@ -160,7 +158,6 @@ run_interactive() {  # <harness> <command> [arguments...]
 for harness in $HARNESSES; do
   case "$harness" in
     claude) bin=$harness ;;
-    cursor) bin=cursor-agent ;;
     *) fail "unknown harness in FM_HOST_MIRROR_LIVE_HARNESSES: $harness" ;;
   esac
   if ! command -v "$bin" >/dev/null 2>&1; then
@@ -170,7 +167,6 @@ for harness in $HARNESSES; do
   fi
   case "$harness" in
     claude) run_claude ;;
-    cursor) run_interactive cursor cursor-agent ;;
   esac
 done
 

@@ -5,8 +5,8 @@
 # The shared composer classifier's shape catalogue (bin/fm-composer-lib.sh) is
 # built entirely from vendor-rendered signals, so per
 # .agents/skills/firstmate-coding-guidelines it must be proven against the
-# REAL harnesses: a stub can only confirm the assumption already written into
-# the stub. This guard launches every INSTALLED verified harness idle in an
+# REAL harness: a stub can only confirm the assumption already written into
+# the stub. This guard launches the installed Claude harness idle in an
 # isolated tmux server and requires the real fm_tmux_composer_state to reach
 # `empty`, failing loudly with the harness name and version. It also proves:
 #   - the strict blank-row posture live: a plain shell pane with a blank
@@ -159,14 +159,14 @@ check_harness_idle_cursorless() {  # <name> <version> <target>
   fi
 }
 
-# --- 1. Every installed verified harness must reach a proven-empty composer --
-for h in claude codex opencode pi grok kimi muse; do
-  if command -v "$h" >/dev/null 2>&1; then
-    check_harness_idle_empty "$h" "$h"
-  else
-    note "harness absent, not verified here: $h"
-  fi
-done
+# --- 1. The verified harness must reach a proven-empty composer -------------
+# quartermaster ships Claude Code as the sole verified harness, so this guard
+# only ever launches a real claude process.
+if command -v claude >/dev/null 2>&1; then
+  check_harness_idle_empty claude claude
+else
+  note "harness absent, not verified here: claude"
+fi
 
 # --- 2. The strict blank-row posture, live ----------------------------------
 # A plain shell pane parked on a blank line between two rules (the audit's
