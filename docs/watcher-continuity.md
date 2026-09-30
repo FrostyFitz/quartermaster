@@ -316,7 +316,7 @@ If a branch offer loses the claim race to main, it rejects its settlement so the
 
 ### Branch eligibility and check rows
 
-[`pi-supervision-branch.md`](pi-supervision-branch.md#components-and-their-owners) owns branch eligibility, mixed-queue dispatch, the pre-drain recheck, and heartbeat's all-or-nothing rule.
+Pi's in-process supervision-branch extension owns branch eligibility, mixed-queue dispatch, the pre-drain recheck, and heartbeat's all-or-nothing rule.
 
 While attended, a check-kind row is main-owned, including a heartbeat review.
 So it is never part of a branch claim and never defers one.

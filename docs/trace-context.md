@@ -29,7 +29,7 @@ Ship and scout spawns reach that site on every spawn backend (`tmux`, `herdr`, `
 
 ### Remote Secondmate routes
 
-A Secondmate on a [remote route](remote-secondmates.md) never reaches that export site in the parent's own process: the parent hands the launch to the configured host, which runs its own `bin/fm-spawn.sh` there.
+A Secondmate on a remote route never reaches that export site in the parent's own process: the parent hands the launch to the configured host, which runs its own `bin/fm-spawn.sh` there.
 The identity is still the parent's, because the parent home holds the task metadata an observer reads.
 The parent therefore resolves the carrier against that task's own metadata under its own frozen decision - reused verbatim on relaunch, freshly rooted otherwise, never adopting the parent process's ambient `TRACEPARENT` - and passes it to the remote host, which exports it at the same unconditional pre-launch site and returns the carrier its endpoint actually holds.
 The parent records that returned value, so an already-alive remote endpoint that was not relaunched reports the identity its agent really received rather than one the parent merely intended.

@@ -29,8 +29,8 @@ Hold-for-return is the default and the only reach profile this release records: 
    Re-invoking `/afk` while already away with no new words is a refresh and leaves the standing record untouched; new words replace the mandate at once, preserve the original session entry, and archive the superseded words for the return brief.
 2. **Per harness, after the record exists:**
    - **Pi and pi-signed**: nothing to launch; go on to the announcement.
-     The away daemon is no longer launched on Pi; the ordinary supervision session (`docs/pi-supervision-branch.md`) keeps running with the record present, and `bin/fm-afk-launch.sh start` refuses on these harnesses.
-     With the record present main is parked: the supervision branch takes every safe actionable wake, captain outcomes accumulate for the return brief, and main's standing authority relocates to the branch through the guarded scripts (`docs/pi-supervision-branch.md` "Postures"); only a wake the branch declines (including a broken branch or unsafe scan) or a watcher failure wakes main.
+     The away daemon is no longer launched on Pi; the ordinary supervision session keeps running with the record present, and `bin/fm-afk-launch.sh start` refuses on these harnesses.
+     With the record present main is parked: the supervision branch takes every safe actionable wake, captain outcomes accumulate for the return brief, and main's standing authority relocates to the branch through the guarded scripts; only a wake the branch declines (including a broken branch or unsafe scan) or a watcher failure wakes main.
      `/quiet` needs nothing extra on Pi: the attended branch already keeps routine wakes out of this conversation, so quiet-while-present is the attended posture's own shape there.
    - **A home that runs the supervision host** (a Claude home unless `config/supervision-host-off` opts it out, or a Cursor, OpenCode, omp, Grok, or Codex home with `config/supervision-host` and no opt-out; `docs/configuration.md` "Supervision host"): nothing to launch for `/afk`; go on to the announcement.
      The supervision host (`docs/supervision-host.md`) is the away session there: it runs the branch's contract on a headless engine under the record while main is parked, and `bin/fm-afk-launch.sh start` and `start-native` refuse the away daemon on that home.
@@ -41,7 +41,7 @@ Hold-for-return is the default and the only reach profile this release records: 
      If the native launch fails, run `bin/fm-afk-launch.sh stop` to roll back the prepared lifecycle.
      Do not wrap it in `nohup ... &` (Codex/herdr can reap fire-and-forget shell children after a tool call returns).
    - **Every other harness** (codex, opencode, omp, and cursor on a home that does not run the supervision host, and kimi): run `bin/fm-afk-launch.sh start`.
-     It is the single owner of the daemon terminal: it creates a NON-VISIBLE tracked terminal for the current backend and passes the captain pane in as `FM_SUPERVISOR_TARGET` so the daemon injects into the captain, not its own new pane (docs/herdr-backend.md "Away-mode supervisor support").
+     It is the single owner of the daemon terminal: it creates a NON-VISIBLE tracked terminal for the current backend and passes the captain pane in as `FM_SUPERVISOR_TARGET` so the daemon injects into the captain, not its own new pane.
    Both daemon paths require the record `enter` wrote and share `bin/fm-afk-start.sh` as the daemon entry.
    The daemon is **presence-gated**: it injects escalations only while `state/.afk` exists, and stays quiet otherwise.
 3. **Announce, then read back after entry.**
@@ -60,7 +60,7 @@ Hold-for-return is the default and the only reach profile this release records: 
   It reads them at the tail of every wake, decides by its own judgment whether the event in front of it is the moment they name, acts on them only through the guarded scripts under standing authority, never by analogy, holds with verdict captain on doubt, and opens every outcome summary for an action taken under the words with "per your away instructions:" (`bin/fm-branch-prompt.sh` "Postures" owns the execution rules).
   Destructive, irreversible, and security-sensitive actions are never pre-authorizable whatever the words say, and ask-user findings keep the `ask-user-authority` policy unless the words pre-answer the exact decision; anything else that needs the captain holds for their return.
 - On Pi, main is parked and the supervision branch handles every safe actionable wake under main's standing authority, through the same guarded scripts main would use: any pull request green at its live head may merge (which one the words meant is the branch's reading), queued work whose blockers cleared - already queued, or filed by the branch because the words explicitly call for it - dispatches within the spend cap, and a decision is answered with the captain's own pre-stated answer or under `ask-user-authority`.
-  Anything else holds for the return, a red merge never proceeds while away, local-only landing always waits for the captain, and only a wake the branch declines (including a broken branch or unsafe scan) or a watcher failure wakes main (`docs/pi-supervision-branch.md` "Postures").
+  Anything else holds for the return, a red merge never proceeds while away, local-only landing always waits for the captain, and only a wake the branch declines (including a broken branch or unsafe scan) or a watcher failure wakes main.
 - On a non-Pi home that runs the supervision host, the host's engine is that branch under the same rules, and a wake it hands back reaches main through that harness's own wake path (`Stop hook feedback` on Claude, a `watcher` follow-up on Cursor, OpenCode, and omp, the arm's background-task-completed notification on Grok, the checkpoint's output on Codex) with a `supervision-host:` line: that is automatic supervision, never the captain's return, so handle it under the away posture ([supervision protocol](../../../docs/supervision-protocols/supervision-host.md)).
 - The session-start digest reports the posture under its AFK subsection, so a restart re-enters the posture from the record, not from memory.
 
@@ -126,7 +126,7 @@ backend (tmux or herdr; see "Auto-discovered supervisor pane" below):
 - **Composer-state guard** - `inject_msg` reads the full `empty`/`pending`/`pending-unproven`/`unknown` verdict from `fm_backend_composer_state` and injects only when it is affirmatively `empty`.
   Every other or future verdict defers, including an unreadable pane, ambiguous geometry, a blank unidentified row, and a bare shell prompt left after the agent exits.
   Each adapter contributes only capture and capability facts to the fleet-wide screen classifier in `bin/fm-composer-lib.sh`, which owns every shape and verdict.
-  It preserves proven idle composers as empty but requires a genuine container around shell glyphs; see `docs/herdr-backend.md` "Composer and injection safety" for the operator contract.
+  It preserves proven idle composers as empty but requires a genuine container around shell glyphs.
   `pane_input_pending` is the tested fail-closed predicate for callers that need to know whether the composer is unsafe: it treats every result except exact `empty` as pending.
 
 A busy primary pane, or any composer verdict other than `empty`, defers the injection; the buffered escalation survives in `state/.subsuper-escalations` and is retried on the next housekeeping tick.
@@ -157,7 +157,7 @@ A bordered-empty or ghost-only composer is recognized as empty where that backen
 `fm-send.sh` uses the same primitive only on its typed plane and exits non-zero when that plane's Enter is positively swallowed; ordinary local text steers use the durable inbox and do not treat doorbell submission as delivery proof.
 
 **Busy-queued Enter exception (opencode 1.18.4).** OpenCode keeps queued text visible while it is mid-turn, so tmux and herdr delegate the final delivery decision to `fm_composer_queued_enter_verdict` in `bin/fm-composer-lib.sh` rather than treating visible text alone as a swallowed Enter.
-The daemon still clears its buffer only on the backend's `empty` success verdict; [`docs/tmux-backend.md`](../../../docs/tmux-backend.md) and [`docs/herdr-backend.md`](../../../docs/herdr-backend.md) own the backend-specific confirmation signals.
+The daemon still clears its buffer only on the backend's `empty` success verdict; [`docs/tmux-backend.md`](../../../docs/tmux-backend.md) owns the backend-specific confirmation signals.
 
 ### Classification policy
 
@@ -244,15 +244,14 @@ The single-line format makes submission unambiguous across harnesses; the carrie
   startup so a wrong-but-resolving fallback is detectable. Other runtime
   backends, including zellij, orca, and cmux, are not yet supported as
   supervisor backends; the daemon refuses loudly at startup instead of
-  misapplying tmux primitives to a pane that isn't one
-  (docs/herdr-backend.md "Away-mode supervisor support").
+  misapplying tmux primitives to a pane that isn't one.
 
 ### Stale-artifact lifecycle
 
 Treat `state/.subsuper-escalations`, its `.since` sidecar, `state/.subsuper-inject-wedged`, and `state/.subsuper-unknown-acked` as session-scoped delivery artifacts, not as the durable work record.
 Always enter through `bin/fm-afk-launch.sh`, which clears prior-session artifacts only for a fresh entry and preserves the current session's buffer on refresh.
 Always exit through `bin/fm-afk-launch.sh stop`, which keeps `state/.afk` present through the daemon's shutdown flush, clears it, and archives the posture record last.
-`docs/herdr-backend.md` "Away-mode supervisor support" owns the current mechanism, and `docs/verification/runtime-backends.md` "Away-mode transport" owns active evidence.
+`docs/verification/runtime-backends.md` "Away-mode transport" owns active evidence.
 
 ### Reliability properties
 
