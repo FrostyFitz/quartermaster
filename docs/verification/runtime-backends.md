@@ -669,8 +669,8 @@ $ ls "$TURNEND"
 <turn-end file present>
 ```
 
-`tests/fm-codex-hook-layer-live-e2e.test.sh` is the command that refreshes this record.
-It captures the launch `bin/fm-spawn.sh` actually builds, replays those exact flags against the installed Codex, and fails naming the harness and version if the hook layer comes back on.
+This regression test was removed when quartermaster cut the Codex harness from its supported surface; this entry is retained as historical evidence.
+It captured the launch `bin/fm-spawn.sh` actually builds, replays those exact flags against the installed Codex, and fails naming the harness and version if the hook layer comes back on.
 It spends no model tokens, so it runs by default wherever Codex is installed.
 The portable half, `tests/fm-spawn-dispatch-profile.test.sh`, pins the split the launch template makes: a crewmate launches hook-free while a secondmate, which runs a primary session on this repository's own project hooks, keeps them.
 
@@ -790,13 +790,10 @@ After the fix, braille-only rows bound the wrap region (the status footer sits b
 A second read-only capture of the same pane, taken during the fix with a bright starfield cell drawn between the `›` and the placeholder, read `pending` before and `empty` after as well.
 `test_matrix_codex_idle_starfield_furniture` in `tests/fm-composer-lib.test.sh` carries both samples byte-for-byte, the divergence (the same screen with letters in place of the starfield reads `pending`), and the over-stripping negatives (wrapped typed input, braille mixed with text, a typed row with a middle dot, and the footer or a starfield row alone).
 
-The live guard that refreshes this entry launches the installed codex idle in an isolated tmux server and asserts `empty` through both the cursor-anchored tmux read and the cursorless styled read Herdr and Zellij use, naming codex and `codex --version` on failure; it is default-on wherever codex and tmux are installed and spends no tokens:
+The live guard that refreshed this entry launched the installed codex idle in an isolated tmux server and asserted `empty` through both the cursor-anchored tmux read and the cursorless styled read Herdr and Zellij use, naming codex and `codex --version` on failure; it was default-on wherever codex and tmux were installed and spent no tokens.
+This regression test was removed when quartermaster cut the Codex harness from its supported surface; this entry is retained as historical evidence.
 
-```sh
-tests/fm-composer-codex-idle-live-e2e.test.sh
-```
-
-The verification machine runs its fleet on Herdr and has no tmux installed, so on 2026-09-15 that guard reported `skip: live: tmux absent` there, and the Herdr capture above is this entry's live evidence.
+The verification machine ran its fleet on Herdr and had no tmux installed, so on 2026-09-15 that guard reported `skip: live: tmux absent` there, and the Herdr capture above is this entry's live evidence.
 The guard also notes whether the starfield and the placeholder were actually drawn during its read, because codex need not animate them under every model or mode; a refresh on a tmux host should record that note beside the verdict rather than assume the starfield was exercised.
 
 ## Steering-inbox doorbell
@@ -1674,11 +1671,8 @@ process-info  Show pane process information
 
 This proves subcommand presence in the client only, not the server response shape, which is measured only on 0.9.0 above.
 
-The live guard that refreshes this record runs by default wherever Herdr and Pi are installed, spends no model token, and fails naming both versions:
-
-```sh
-tests/fm-herdr-pi-stale-registration-live-e2e.test.sh
-```
+The live guard that refreshed this record ran by default wherever Herdr and Pi were installed, spent no model token, and failed naming both versions.
+This regression test was removed when quartermaster cut the Pi harness (and the Herdr+Pi combination it covered) from its supported surface; this entry is retained as historical evidence.
 
 Observed 2026-09-10:
 
@@ -2363,4 +2357,4 @@ A throwaway scout was spawned through `bin/fm-spawn.sh --scout --harness omp --m
 5. `bin/fm-control.sh <id> interrupt` cancelled the running turn;
 6. `bin/fm-control.sh <id> exit` stopped the agent and `bin/fm-teardown.sh` returned the worktree and closed the item.
 
-`FM_OMP_LIVE_E2E=1 tests/fm-omp-primary-live-e2e.test.sh` refreshes the primary evidence; the worker path above is refreshed by repeating the scout dispatch after any omp upgrade.
+This regression test was removed when quartermaster cut the omp harness from its supported surface; this entry is retained as historical evidence. The worker path above was previously refreshed by repeating the scout dispatch after any omp upgrade.
