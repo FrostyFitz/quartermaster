@@ -575,6 +575,66 @@
     {
       "path": ".agents/skills/validation-supervision/SKILL.md",
       "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/onboarding/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "templates/agent.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "templates/core-rules.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "templates/persona/tones/professional.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "templates/persona/tones/friendly.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "templates/persona/tones/salty-butler.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "templates/persona/toggles/never_suggest_stopping.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "templates/persona/toggles/one_question_then_stop.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "templates/vault/Home.md",
+      "audience": "operator-example"
+    },
+    {
+      "path": "templates/vault/Open Work.md",
+      "audience": "operator-example"
+    },
+    {
+      "path": "templates/vault/Daily/Daily Template.md",
+      "audience": "operator-example"
+    },
+    {
+      "path": "templates/vault/Projects/_Project Template/_Project Template.md",
+      "audience": "operator-example"
+    },
+    {
+      "path": "templates/vault/Jobs/README.md",
+      "audience": "operator-example"
+    },
+    {
+      "path": "templates/vault/Inbox/README.md",
+      "audience": "operator-example"
+    },
+    {
+      "path": "templates/vault/Archive/README.md",
+      "audience": "operator-example"
     }
   ]
 }
