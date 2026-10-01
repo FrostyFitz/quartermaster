@@ -771,8 +771,24 @@ write_omp_loaded_markers() {
 
 # --- context digest: absent vs empty vs present -----------------------------
 
+write_fixture_vault_config() {  # <config-dir> <vault-root> [entry] [queue]
+  local config_dir=$1 vault_root=$2 entry=${3:-Home.md} queue=${4:-Open Work.md}
+  mkdir -p "$config_dir"
+  cat > "$config_dir/agent.md" <<EOF
+---
+name: "Tester"
+address: "boss"
+vault:
+  root: "$vault_root"
+  entry: "$entry"
+  queue: "$queue"
+---
+# Persona
+EOF
+}
+
 test_context_digest_absent_empty_present() {
-  local rec root home fakebin out
+  local rec root home fakebin out vault cap_section
   rec=$(new_world context-digest)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -781,8 +797,17 @@ EOF
   make_fake_ps_claude "$fakebin"
 
   printf '%s\n' '- demo [no-mistakes] - a demo project (added 2026-07-01)' > "$home/data/projects.md"
-  : > "$home/data/captain.md"
-  # secondmates.md, captain-shared.md, and learnings.md deliberately absent
+  : > "$home/data/learnings.md"
+  # secondmates.md deliberately absent
+
+  vault="$home/vault"
+  mkdir -p "$vault"
+  printf '%s\n' '# Home' 'Who I am: a test fixture.' > "$vault/Home.md"
+  {
+    printf '%s\n' '- [ ] [project: meta] first open item'
+    printf '%s\n' '- [x] [project: meta] a finished item that should not count'
+  } > "$vault/Open Work.md"
+  write_fixture_vault_config "$home/config" "$vault"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
@@ -795,23 +820,88 @@ EOF
   assert_contains "$out" "data/projects.md" "digest did not label the projects.md section"
   assert_contains "$out" "- demo [no-mistakes] - a demo project (added 2026-07-01)" "digest did not print projects.md content"
 
-  assert_contains "$out" "data/captain.md" "digest did not label the captain.md section"
-  assert_contains "$out" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)" \
-    "digest did not label the shared captain section"
-
   assert_contains "$out" "data/secondmates.md" "digest did not label the secondmates.md section"
   assert_contains "$out" "data/learnings.md" "digest did not label the learnings.md section"
 
-  # Exactly four context ABSENT markers (secondmates.md, captain-shared.md,
-  # learnings.md; backlog.md is covered by its own test) - and the
-  # present-but-empty captain.md must NOT print ABSENT.
+  # Exactly two context ABSENT markers (secondmates.md; backlog.md is
+  # covered by its own test) now that captain.md/captain-shared.md no longer
+  # print here - and the present-but-empty learnings.md must NOT print ABSENT.
   absent_count=$(printf '%s\n' "$out" | grep -c '^ABSENT$')
-  [ "$absent_count" -eq 4 ] || fail "expected 4 ABSENT markers (secondmates.md, captain-shared.md, learnings.md, backlog.md), got $absent_count: $out"
+  [ "$absent_count" -eq 2 ] || fail "expected 2 ABSENT markers (secondmates.md, backlog.md), got $absent_count: $out"
 
-  cap_section=$(printf '%s\n' "$out" | awk '/^data\/captain\.md$/{flag=1;next}/^data\//{flag=0}flag')
-  assert_contains "$cap_section" "(present, empty)" "empty-but-present captain.md was not distinguished from ABSENT"
+  cap_section=$(printf '%s\n' "$out" | awk '/^data\/learnings\.md$/{flag=1;next}/^data\//{flag=0}flag')
+  assert_contains "$cap_section" "(present, empty)" "empty-but-present learnings.md was not distinguished from ABSENT"
 
-  pass "context digest distinguishes ABSENT, empty-but-present, and populated files"
+  assert_contains "$out" $'\nVAULT\n' "digest did not print a VAULT section"
+  assert_contains "$out" "Who I am: a test fixture." "digest did not inline the vault entry note in full"
+  assert_contains "$out" "open items: 1" "digest did not count only the open checkbox item"
+  assert_contains "$out" "- [project: meta] first open item" "digest did not render the open queue item"
+  assert_not_contains "$out" "a finished item that should not count" "digest rendered a closed checkbox item as open"
+  assert_not_contains "$out" "ONBOARDING REQUIRED" "a configured home wrongly printed the onboarding banner"
+
+  pass "context digest distinguishes ABSENT, empty-but-present, populated, and vault-backed sections"
+}
+
+# --- onboarding-required digest ----------------------------------------------
+
+test_onboarding_required_banner_when_config_missing() {
+  local rec root home fakebin out banner_line lock_line
+  rec=$(new_world onboarding-missing)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  # new_world never writes config/agent.md, so this is the default unconfigured state.
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "ONBOARDING REQUIRED" "digest did not report onboarding required with no config/agent.md"
+  assert_contains "$out" ".agents/skills/onboarding/SKILL.md" "onboarding banner did not point at the onboarding skill"
+  assert_contains "$out" "config/agent.md is missing" "onboarding banner did not name the missing file"
+  assert_contains "$out" $'\nVAULT\n' "a missing config/agent.md still cost the digest its VAULT section header"
+  assert_contains "$out" "ABSENT (config/agent.md is missing or has no vault.root configured" \
+    "the VAULT section did not explain its own absence"
+  assert_contains "$out" "NEXT STEP" "onboarding required truncated the rest of the digest"
+
+  banner_line=$(printf '%s\n' "$out" | grep -n 'ONBOARDING REQUIRED' | head -1 | cut -d: -f1)
+  lock_line=$(printf '%s\n' "$out" | grep -n '^LOCK$' | head -1 | cut -d: -f1)
+  [ -n "$banner_line" ] && [ -n "$lock_line" ] && [ "$banner_line" -lt "$lock_line" ] \
+    || fail "the onboarding banner did not lead near the top of the digest, ahead of LOCK"
+
+  pass "a missing config/agent.md prints a prominent ONBOARDING REQUIRED banner near the top, and the rest of the digest still runs"
+}
+
+test_vault_queue_reports_unreadable_and_bounds_with_omitted_count() {
+  local rec root home fakebin out vault i
+  rec=$(new_world vault-unreadable-and-bounds)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  vault="$home/vault"
+  mkdir -p "$vault"
+  printf '# Home\n' > "$vault/Home.md"
+  : > "$vault/Open Work.md"
+  for i in $(seq 1 65); do
+    printf -- '- [ ] open item %s\n' "$i" >> "$vault/Open Work.md"
+  done
+  write_fixture_vault_config "$home/config" "$vault"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "open items: 65" "digest did not count all 65 open items"
+  assert_contains "$out" "(5 more open item(s) omitted)" "digest did not disclose the exact omitted remainder past the 60-item cap"
+  assert_not_contains "$out" "open item 61" "digest printed an item beyond the bound"
+
+  # Now make the entry note unreadable (exists, but not a regular readable file).
+  rm -f "$vault/Home.md"
+  mkdir -p "$vault/Home.md"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "UNREADABLE" "digest did not report an unreadable vault entry note"
+
+  pass "the vault queue summary bounds items with a disclosed remainder, and an unreadable vault file reports UNREADABLE"
 }
 
 # --- lock refusal: read-only path --------------------------------------------
@@ -1017,7 +1107,7 @@ SH
 # read-once contract arrives before the payload it governs.
 test_output_ordering_diagnostics_lead() {
   local rec root home fakebin out lock_line boot_line wake_line read_once_line
-  local context_line fleet_line next_line inventory_line missing_line
+  local context_line fleet_line next_line inventory_line missing_line vault
   rec=$(new_world ordering)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -1028,7 +1118,10 @@ EOF
   rm -f "$fakebin/node"
 
   printf 'window=fm-sess:w1\nkind=ship\n' > "$home/state/task-a.meta"
-  printf 'Captain memory that may be truncated away safely.\n' > "$home/data/captain.md"
+  vault="$home/vault"
+  mkdir -p "$vault"
+  printf 'Captain memory that may be truncated away safely.\n' > "$vault/Home.md"
+  write_fixture_vault_config "$home/config" "$vault"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$(fm_test_base_path_sans "$BASE_PATH" node)")
 
@@ -3015,6 +3108,8 @@ EOF
 }
 
 test_context_digest_absent_empty_present
+test_onboarding_required_banner_when_config_missing
+test_vault_queue_reports_unreadable_and_bounds_with_omitted_count
 test_lock_refusal_read_only_path
 test_lock_write_failure_read_only_path
 test_trace_context_effective_state_is_frozen_after_lock
