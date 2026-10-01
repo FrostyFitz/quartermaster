@@ -5,7 +5,7 @@
 # producing ONE ordered digest, so a session starts in one or two turns
 # instead of the six-plus separate reads the old docs required: run
 # fm-bootstrap.sh, then separately read data/projects.md, data/secondmates.md,
-# data/captain.md, data/captain-shared.md, data/learnings.md, then run
+# the memory vault's entry note and queue, data/learnings.md, then run
 # fm-lock.sh, fm-wake-drain.sh, then read data/backlog.md, every state/*.meta,
 # and every state/*.status.
 # Every one of those reads is UNCONDITIONAL at every session start, so they
@@ -59,9 +59,14 @@
 #                       can itself reach the digest's runtime bound.
 #   7. network checks - the result of the deferred network stage started back at
 #                       step 1, harvested WITHOUT waiting for it.
-#   8. context digest - data/projects.md, data/secondmates.md, data/captain.md,
-#                       data/captain-shared.md, data/learnings.md: read-only,
-#                       always safe, always runs.
+#   8. context digest - data/projects.md, data/secondmates.md, data/learnings.md,
+#                       and a VAULT section (the memory vault's entry note
+#                       inlined in full, plus a bounded open-work queue
+#                       summary, both resolved from config/agent.md): read-only,
+#                       always safe, always runs. A missing config/agent.md
+#                       surfaces separately and loudly as an ONBOARDING
+#                       REQUIRED banner near the top of this digest, before the
+#                       lock stage, rather than as an ABSENT line buried here.
 #   9. closing reminder - prints the context-specific watcher next step; this
 #                       script points back to the emitted harness supervision
 #                       block and deliberately never arms the watcher itself.
@@ -371,6 +376,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-line-cap-lib.sh
 . "$SCRIPT_DIR/fm-line-cap-lib.sh"
+# shellcheck source=bin/fm-agent-config-lib.sh
+. "$SCRIPT_DIR/fm-agent-config-lib.sh"
 
 # One tasks-axi compatibility verdict per session start. The probe costs three
 # tasks-axi subprocesses and this digest needs the same answer twice - here for
@@ -401,10 +408,10 @@ subsection() { printf '\n%s\n%s\n' "$1" "$SUBRULE"; }
 
 # print_file_or_absent <path> <label>: full contents under a labeled
 # subsection, or an explicit ABSENT marker. Absence is semantically
-# meaningful for every one of these files (captain.md absent = firstmate
-# repo built-in defaults, projects.md absent = rebuild from clones, etc. -
-# AGENTS.md section 3) and must never be confused with an empty-but-present
-# file, so the two cases print differently.
+# meaningful for every one of these files (projects.md absent = rebuild from
+# clones, secondmates.md absent = no registered secondmates, etc. - AGENTS.md
+# section 3) and must never be confused with an empty-but-present file, so the
+# two cases print differently.
 print_file_or_absent() {
   local path=$1 label=$2
   subsection "$label"
@@ -416,6 +423,65 @@ print_file_or_absent() {
     fi
   else
     printf 'ABSENT\n'
+  fi
+}
+
+# print_vault_file <path> <label>: like print_file_or_absent, plus an explicit
+# UNREADABLE marker. A vault path is user-controlled (config/agent.md's
+# vault.root plus a relative file name) and can point at something that
+# exists but cannot be read, not only something missing; both are disclosed,
+# never treated as a digest failure.
+print_vault_file() {
+  local path=$1 label=$2
+  subsection "$label"
+  if [ ! -e "$path" ]; then
+    printf 'ABSENT\n'
+  elif [ ! -f "$path" ] || [ ! -r "$path" ]; then
+    printf 'UNREADABLE\n'
+  elif [ -s "$path" ]; then
+    cat "$path"
+  else
+    printf '(present, empty)\n'
+  fi
+}
+
+# print_vault_queue_summary <path>: the queue path, its open-item count, and
+# one line per open "- [ ] " item - markdown-stripped of bold markers and
+# capped at 200 characters via fm_cap_line, the same truncation the status-tail
+# section uses - bounded to FM_VAULT_QUEUE_LIMIT items (default 60) with a
+# disclosed remainder. Never inlines the whole queue file, which can run much
+# larger than the entry note.
+FM_VAULT_QUEUE_LIMIT=${FM_VAULT_QUEUE_LIMIT:-60}
+case "$FM_VAULT_QUEUE_LIMIT" in ''|*[!0-9]*|0) FM_VAULT_QUEUE_LIMIT=60 ;; esac
+print_vault_queue_summary() {
+  local path=$1 limit=$FM_VAULT_QUEUE_LIMIT total=0 line stripped
+  local -a shown_lines=()
+  printf 'path: %s\n' "$path"
+  if [ ! -e "$path" ]; then
+    printf 'ABSENT\n'
+    return 0
+  fi
+  if [ ! -f "$path" ] || [ ! -r "$path" ]; then
+    printf 'UNREADABLE\n'
+    return 0
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '- [ ] '*) : ;;
+      *) continue ;;
+    esac
+    total=$((total + 1))
+    [ "${#shown_lines[@]}" -lt "$limit" ] || continue
+    stripped=${line#'- [ ] '}
+    stripped=${stripped//'**'/}
+    shown_lines+=("$stripped")
+  done < "$path"
+  printf 'open items: %s\n' "$total"
+  for stripped in "${shown_lines[@]}"; do
+    printf -- '- %s\n' "$(fm_cap_line "$stripped" 200)"
+  done
+  if [ "$total" -gt "${#shown_lines[@]}" ]; then
+    printf '(%s more open item(s) omitted)\n' "$((total - ${#shown_lines[@]}))"
   fi
 }
 
@@ -675,6 +741,25 @@ if [ "$REEMIT" -eq 1 ]; then
 else
   section "SESSION START - $FM_HOME"
 fi
+
+# config/agent.md is this agent's name, persona, toggles, and memory vault
+# pointer, written by the onboarding skill. Its absence is the one thing that
+# must outrank everything else in the digest, so it prints first, loud, and
+# unconditionally (read-only or not, reemit or not) - the rest of the digest
+# still runs below it either way.
+if [ ! -f "$CONFIG/agent.md" ] || [ -L "$CONFIG/agent.md" ]; then
+  BAR='●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+  {
+    printf '\n%s\n' "$BAR"
+    printf '●  ONBOARDING REQUIRED - load the onboarding skill\n'
+    printf '●  (.agents/skills/onboarding/SKILL.md) before anything else.\n'
+    printf '●  config/agent.md is missing: this agent has no configured name,\n'
+    printf '●  persona, toggles, or memory vault yet. The rest of this digest\n'
+    printf '●  still runs below.\n'
+    printf '%s\n' "$BAR"
+  }
+fi
+
 # --- 1. lock -----------------------------------------------------------
 stage lock
 subsection "LOCK"
@@ -856,8 +941,8 @@ section "READ-ONCE CONTRACT"
 cat <<'EOF'
 Everything below is printed in full for this session start: every state/*.meta,
 a compact data/backlog.md listing, a bounded tail of every state/*.status,
-data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
-and data/learnings.md.
+data/projects.md, data/secondmates.md, data/learnings.md, and the VAULT section
+(the memory vault's entry note in full, plus a bounded open-work queue summary).
 Do NOT re-read any of them after reading this digest, and do NOT bulk-read
 data/backlog.md or state/*.status: re-reading everything defeats the entire
 point of this command.
@@ -1012,9 +1097,18 @@ stage context
 section "CONTEXT"
 print_file_or_absent "$DATA/projects.md" "data/projects.md"
 print_file_or_absent "$DATA/secondmates.md" "data/secondmates.md"
-print_file_or_absent "$DATA/captain.md" "data/captain.md"
-print_file_or_absent "$DATA/captain-shared.md" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)"
 print_file_or_absent "$DATA/learnings.md" "data/learnings.md"
+
+section "VAULT"
+if fm_agent_config_read "$CONFIG" && [ -n "$FM_AGENT_CONFIG_VAULT_ROOT" ]; then
+  print_vault_file "$FM_AGENT_CONFIG_VAULT_ROOT/$FM_AGENT_CONFIG_VAULT_ENTRY" \
+    "vault entry ($FM_AGENT_CONFIG_VAULT_ENTRY)"
+  subsection "vault queue ($FM_AGENT_CONFIG_VAULT_QUEUE)"
+  print_vault_queue_summary "$FM_AGENT_CONFIG_VAULT_ROOT/$FM_AGENT_CONFIG_VAULT_QUEUE"
+else
+  subsection "vault"
+  printf 'ABSENT (config/agent.md is missing or has no vault.root configured; load the onboarding skill)\n'
+fi
 
 # --- 9. closing reminder -----------------------------------------------
 stage next-step

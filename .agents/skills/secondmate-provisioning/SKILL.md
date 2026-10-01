@@ -93,6 +93,7 @@ The declared `config/supervision-host-off` opt-out follows the same primary-auth
 `config/supervision-host` itself is not inherited; each home selects its own engine.
 `config/secondmate-harness` is not inherited because it is only the primary's knob for launching secondmate agents.
 `config/claude-account` is not inherited: a local secondmate agent launches on the launching home's worker account pin, and a secondmate home that should pin its own workers needs its own file ([`docs/configuration.md`](../../../docs/configuration.md) "Worker account pin").
+Durable per-agent preferences now live in the memory vault's entry note and `config/agent.md`'s Personal rules section (AGENTS.md's Memory section), not in `data/captain.md`; the propagation contract below is fleet-wide secondmate plumbing, kept working for any home that still carries these files, independent of that per-agent vault.
 `data/captain-shared.md` is main-authoritative in the primary home and read-only in secondmate homes.
 Its primary file header must state that the file is main-authoritative, read-only in secondmate homes, must not be edited there, and that new captain-preference discoveries are routed to the main firstmate through marked status or a document pointer.
 Every propagation point converges the secondmate copy to the primary bytes; when the primary file is absent, any existing secondmate copy is quarantined and removed so absence converges too.

@@ -1609,6 +1609,127 @@ test_projection_and_toon_fail_closed() {
   pass "projection and TOON rendering failures exit nonzero with diagnostics"
 }
 
+# --- vault_queue projection (config/agent.md's vault.root/vault.queue) ------
+
+write_fixture_agent_config() {  # <config-dir> <vault-root> [user_name] [queue-file]
+  local config_dir=$1 vault_root=$2 user_name=${3:-} queue=${4:-Open\ Work.md}
+  mkdir -p "$config_dir"
+  cat > "$config_dir/agent.md" <<EOF
+---
+name: "Tester"
+address: "boss"
+user_name: "$user_name"
+vault:
+  root: "$vault_root"
+  entry: "Home.md"
+  queue: "$queue"
+---
+# Persona
+EOF
+}
+
+test_vault_queue_absent_without_config() {
+  local home fakebin out
+  home=$(make_home vault-absent)
+  fakebin=$(make_fakebin "$home")
+  out=$(run "$home" "$fakebin" --json)
+  printf '%s' "$out" | jq -e '
+    .vault_queue.state == "absent"
+      and .vault_queue.captain == []
+      and .vault_queue.next == []
+  ' >/dev/null || fail "vault_queue did not report absent with no config/agent.md: $out"
+  pass "vault_queue reports absent with no config/agent.md"
+}
+
+test_vault_queue_unconfigured_without_vault_root() {
+  local home fakebin out
+  home=$(make_home vault-unconfigured)
+  fakebin=$(make_fakebin "$home")
+  mkdir -p "$home/config"
+  cat > "$home/config/agent.md" <<'EOF'
+---
+name: "Tester"
+address: "boss"
+---
+# Persona
+EOF
+  out=$(run "$home" "$fakebin" --json)
+  printf '%s' "$out" | jq -e '.vault_queue.state == "unconfigured"' >/dev/null \
+    || fail "vault_queue did not report unconfigured with no vault.root: $out"
+  pass "vault_queue reports unconfigured when config/agent.md has no vault.root"
+}
+
+test_vault_queue_classifies_captain_and_next() {
+  local home fakebin out vault
+  home=$(make_home vault-classify)
+  vault="$home/vault"
+  mkdir -p "$vault"
+  {
+    # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
+    printf '%s\n' '- [ ] **Fitz: pick a database** — `trovewright`'
+    # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
+    printf '%s\n' '- [ ] fitz: lowercase marker also matches — `meta`'
+    # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
+    printf '%s\n' '- [ ] Regular next-work item with no marker — `personal`'
+    printf '%s\n' '- [x] A closed item that must never appear'
+  } > "$vault/Open Work.md"
+  write_fixture_agent_config "$home/config" "$vault" "Fitz"
+  fakebin=$(make_fakebin "$home")
+  out=$(run "$home" "$fakebin" --json)
+  printf '%s' "$out" | jq -e '
+    .vault_queue.state == "ok"
+      and (.vault_queue.captain | length) == 2
+      and (.vault_queue.next | length) == 1
+      and (.vault_queue.captain[0].text | test("pick a database"))
+      and (.vault_queue.captain[0].project == "trovewright")
+      and (.vault_queue.next[0].text | test("Regular next-work item"))
+      and (.vault_queue.next[0].project == "personal")
+  ' >/dev/null || fail "vault_queue did not classify captain vs next correctly: $out"
+  assert_not_contains "$out" "closed item that must never appear" \
+    "vault_queue included a closed checkbox item"
+  pass "vault_queue classifies a case-insensitive user_name marker as captain, everything else as next"
+}
+
+test_vault_queue_bounds_and_discloses_omitted() {
+  local home fakebin out vault i
+  home=$(make_home vault-bounds)
+  vault="$home/vault"
+  mkdir -p "$vault"
+  : > "$vault/Open Work.md"
+  for i in 1 2 3 4 5; do
+    printf -- '- [ ] next item %s\n' "$i" >> "$vault/Open Work.md"
+  done
+  write_fixture_agent_config "$home/config" "$vault" "Fitz"
+  fakebin=$(make_fakebin "$home")
+  out=$(FM_BEARINGS_VAULT_QUEUE=2 run "$home" "$fakebin" --json)
+  printf '%s' "$out" | jq -e '
+    .vault_queue.state == "ok"
+      and (.vault_queue.next | length) == 2
+      and .vault_queue.omitted.next == 3
+      and .vault_queue.omitted.captain == 0
+  ' >/dev/null || fail "vault_queue did not bound and disclose omitted next items: $out"
+  pass "vault_queue bounds each bucket and discloses the exact omitted remainder"
+}
+
+test_vault_queue_unreadable_with_missing_queue_file() {
+  local home fakebin out vault
+  home=$(make_home vault-unreadable)
+  vault="$home/vault"
+  mkdir -p "$vault"
+  write_fixture_agent_config "$home/config" "$vault" "Fitz" "Missing.md"
+  fakebin=$(make_fakebin "$home")
+  out=$(run "$home" "$fakebin" --json)
+  printf '%s' "$out" | jq -e --arg path "$vault/Missing.md" '
+    .vault_queue.state == "unreadable"
+      and .vault_queue.path == $path
+      and .vault_queue.captain == []
+      and .vault_queue.next == []
+      and .vault_queue.omitted.captain == 0
+      and .vault_queue.omitted.next == 0
+  ' >/dev/null || fail "vault_queue did not report unreadable with a missing queue file: $out"
+  pass "vault_queue reports unreadable when vault.root is configured but the queue file is missing"
+}
+
 # The Lavish-103 defect, end to end: a COMPLETED scout that raised a decision and
 # then finished (done), whose report body reads like that decision, must surface as
 # a report POINTER only - never in decisions_open. Report prose must never open or
@@ -3414,3 +3535,8 @@ test_revealed_deferred_holds_show_their_deferral_reason
 test_pr_repository_cap_and_expansion
 test_per_repository_pr_cap_is_disclosed
 test_projection_and_toon_fail_closed
+test_vault_queue_absent_without_config
+test_vault_queue_unconfigured_without_vault_root
+test_vault_queue_classifies_captain_and_next
+test_vault_queue_bounds_and_discloses_omitted
+test_vault_queue_unreadable_with_missing_queue_file

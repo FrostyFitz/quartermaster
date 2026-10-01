@@ -9,7 +9,11 @@ metadata:
 # Operational home layout
 
 ```
-AGENTS.md            this file (CLAUDE.md is a real @AGENTS.md pointer to it)
+AGENTS.md            this file (CLAUDE.md imports it, templates/core-rules.md, and config/agent.md)
+templates/core-rules.md  the locked universal memory and working rules, imported by CLAUDE.md
+templates/agent.md   the config/agent.md schema template, filled in by onboarding
+templates/persona/   tone-preset and toggle text copied into config/agent.md by onboarding
+templates/vault/     default vault scaffold copied for a new vault by onboarding
 CONTRIBUTING.md      contributor workflow and repo conventions
 README.md            public overview and development notes
 .github/workflows/   shared CI and PR enforcement, committed
@@ -20,6 +24,7 @@ README.md            public overview and development notes
 skills/              standalone public installer-facing skills, committed; not loaded by firstmate
 bin/                 helper scripts, committed; read each script's header before first use
 .env                 optional mail-plane credentials (schema: docs/configuration.md "Mail plane"), and typed dispatch resolution key TYPESAFE_API_KEY (presence-gates bin/fm-dispatch-resolve.sh; docs/configuration.md "Typed dispatch resolution"); LOCAL, gitignored
+config/agent.md      this agent's name, address, tone, toggles, and vault pointer; LOCAL, gitignored; written by the onboarding skill, imported by CLAUDE.md, edited directly or by re-running onboarding to change a setting
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate. Inherited as the literal file: a concrete primary adapter value also controls a secondmate home's own crewmates (section 4)
 config/claude-permission-mode  optional one-token permission posture for every Claude worker launch: absent or "bypass" keeps --dangerously-skip-permissions, "auto" launches with --permission-mode auto; LOCAL, gitignored; inherited by secondmate homes; see docs/configuration.md "Claude permission mode"
 config/claude-account  optional per-home worker account pin for Claude launches; LOCAL, gitignored, not inherited; absent keeps today's ambient account; present refuses a launch unless the pinned account resolves and is signed in (section 4 owns the refusal rule); see docs/configuration.md "Worker account pin"
@@ -43,9 +48,9 @@ config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCA
 config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see docs/configuration.md "Watched tool updates"
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
-  captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
-  captain-shared.md  main-authoritative shared captain preferences propagated read-only to secondmate homes; LOCAL, gitignored, owned by secondmate-provisioning
-  learnings.md       fleet-local operational facts and gotchas; LOCAL, gitignored; dated, evidence-backed, curated, and updated with inspect-then-update - rewrite and prune rather than append forever, the same contract as captain.md; created lazily, absent until this home has a learning to store
+  captain.md         legacy domain-local captain-preference file; LOCAL, gitignored. No longer printed by session start or written by routine routing - durable captain preferences now live in the memory vault's entry note (config/agent.md's vault.entry; AGENTS.md's Memory section), and personal standing rules live in config/agent.md's Personal rules section. Left in place only for a home that still has one; nothing creates it fresh
+  captain-shared.md  main-authoritative shared captain preferences propagated read-only to secondmate homes; LOCAL, gitignored, owned by secondmate-provisioning. Fleet-wide secondmate propagation plumbing only, independent of the per-agent vault; no longer printed by session start
+  learnings.md       fleet-local operational facts and gotchas; LOCAL, gitignored; dated, evidence-backed, curated, and updated with inspect-then-update - rewrite and prune rather than append forever; created lazily, absent until this home has a learning to store
   projects.md        thin fleet navigation registry recording each project's standing delivery posture and optional ship-branch prefix; firstmate-private, parsed by fm-project-mode.sh (section 6)
   secondmates.md      secondmate routing table; firstmate-private, maintained by the secondmate seed helpers (section 6)
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate

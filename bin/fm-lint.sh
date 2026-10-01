@@ -34,6 +34,12 @@
 #     SC2034, SC2153, and SC2329. A branch with zero matching changed files
 #     skips ShellCheck and prints a "no changed lint targets" note, then
 #     still runs the backend-purity check and validates workflows.
+#   - --changed forces the changed-file branch above regardless of the
+#     ambient GITHUB_ACTIONS/CI signal. A workflow step cannot actually clear
+#     GITHUB_ACTIONS: GitHub Actions silently ignores an env: override of its
+#     own reserved GITHUB_ACTIONS variable, so ci.yml's lint-changed job stays
+#     stuck in the full canonical pass (and can blow its job timeout) unless
+#     it opts into changed-file mode with this flag instead.
 # Explicit paths always bypass this file-set selection and lint exactly the
 # given paths, matching the same config, without the workflow YAML check.
 # Explicit core bin/ and bin/backends/ scripts still receive the
@@ -91,6 +97,7 @@
 # Usage:
 #   fm-lint.sh                         lint the context-selected file set (see above)
 #   fm-lint.sh --fast [path]...       local lint with extended analysis disabled
+#   fm-lint.sh --changed [path]...    force changed-file mode despite GITHUB_ACTIONS/CI
 #   fm-lint.sh <path>...               lint explicit roots with the same config
 #   fm-lint.sh --jobs <1|2> [path]...  override concurrent worker count
 #   fm-lint.sh --partition <1of2|2of2> lint one full-rigor canonical CI partition
@@ -629,6 +636,7 @@ JOBS=${FM_LINT_JOBS:-2}
 TELEMETRY=${FM_LINT_TELEMETRY:-}
 FAST=0
 ANALYSIS_MODE=full
+CHANGED_REQUESTED=0
 PARTITION=
 PARTITION_REQUESTED=0
 LIST_FILES=0
@@ -668,6 +676,10 @@ while [ "$#" -gt 0 ]; do
       ANALYSIS_MODE=fast
       shift
       ;;
+    --changed)
+      CHANGED_REQUESTED=1
+      shift
+      ;;
     --list-files)
       LIST_FILES=1
       shift
@@ -697,8 +709,8 @@ case "$PARTITION" in
     fi
     ;;
   1of2|2of2)
-    if [ "$FAST" -eq 1 ] || [ "$#" -gt 0 ]; then
-      printf 'fm-lint.sh: --partition requires full canonical lint; omit --fast and explicit paths.\n' >&2
+    if [ "$FAST" -eq 1 ] || [ "$CHANGED_REQUESTED" -eq 1 ] || [ "$#" -gt 0 ]; then
+      printf 'fm-lint.sh: --partition requires full canonical lint; omit --fast, --changed, and explicit paths.\n' >&2
       exit 2
     fi
     ;;
@@ -754,7 +766,8 @@ if [ "$#" -gt 0 ]; then
   ROOTS=("$@")
 else
   full_lint=1
-  if [ -z "$PARTITION" ] && [ "${GITHUB_ACTIONS:-}" != true ] && [ "${CI:-}" != true ] \
+  if [ -z "$PARTITION" ] \
+    && { [ "$CHANGED_REQUESTED" -eq 1 ] || { [ "${GITHUB_ACTIONS:-}" != true ] && [ "${CI:-}" != true ]; }; } \
     && command -v git >/dev/null 2>&1 \
     && git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" != main ]; then

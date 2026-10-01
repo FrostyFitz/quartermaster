@@ -14,6 +14,10 @@ Sweep this session for durable knowledge and open-work record state that exist o
 Memory entries are tiered and decay between passes, and stale material retires to a cold archive instead of being deleted.
 This skill writes only through the existing Firstmate ownership and write boundaries.
 
+Durable per-agent preferences and working style now route to the memory vault's entry note, and personal standing rules route to `config/agent.md`'s Personal rules section (AGENTS.md's Memory section owns the split; `data/captain.md` is no longer a routing destination, and nothing creates it fresh).
+The tiered marker/decay machinery below still governs `data/learnings.md` exactly as written, and separately governs `data/captain-shared.md` where a home still carries one, purely as inert fleet-wide secondmate-sharing plumbing independent of the per-agent vault.
+The vault entry note's own size counts toward the same budget (`bin/fm-startup-memory-budget.sh` measures the vault entry note, the vault queue, and `data/learnings.md`), but curate it through the vault's own "one source of truth" discipline - trim it or move detail to a linked vault note - never by writing this skill's tier markers into vault prose; if it alone pushes the total over budget, surface that as a concrete decision in the completion receipt rather than silently applying decay to it.
+
 ## Memory tiers and entry markers
 
 Markers are compact trailing HTML comments, deliberately cheap because marker bytes are counted content:
@@ -42,7 +46,7 @@ The tier names say what the pass does with an entry:
 
 Marking rules:
 
-- Tier defaults are file-scoped: entries in `data/captain.md` and `data/captain-shared.md` default to `pinned` because preferences and authority boundaries do not age, and entries in `data/learnings.md` default to `aging` because operational facts must re-prove themselves.
+- Tier defaults are file-scoped: entries in `data/captain-shared.md` default to `pinned` because preferences and authority boundaries do not age, and entries in `data/learnings.md` default to `aging` because operational facts must re-prove themselves.
 - An entry matching its file's `pinned` default carries no marker at all; every `aging` and `perishable` entry always carries its dated marker, whose letter names the tier, so a clock-carrying entry is never ambiguous with unmarked legacy material.
 - Marker and header-pointer bytes count toward the startup-memory budget: the pass's own bookkeeping is costed content, never free, which is why the spellings above are as short as they are.
 - Each memory file's header carries at most a one-line pointer naming this skill as the scheme owner, such as `<!-- memory tiers: see the stow skill -->`.
@@ -83,9 +87,9 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    The helper's stable estimate is the documented conservative local approximation, not provider-exact accounting.
    If it rejects the setting or a memory file, do not infer a default or silently continue.
    Report that concrete exception and do not call the session reset-safe.
-2. Read every current memory file completely: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`.
+2. Read every current memory file completely: `data/captain-shared.md` (where present) and `data/learnings.md`.
    Treat an absent local file as absent, not as an invitation to manufacture content.
-   In a primary home, all three are curation inputs under their existing ownership rules.
+   In a primary home, both are curation inputs under their existing ownership rules.
    In a secondmate home, `data/captain-shared.md` is a read-only primary-owned input: count it, never edit it, and curate only the editable local files.
    Every mutation in the rest of this pass, including reinforcement, retiering, decay archival, legacy migration, consolidation, budget archival, and offload, applies only to an editable memory file.
    When a read-only shared entry appears to require one of those changes, leave it untouched, report the required change as an ownership exception, and route it to the primary owner.
@@ -117,8 +121,8 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    The sole exception is relocation to a JIT owner after explicit, per-item captain approval under the offload flow below, and that entry remains in memory until its destination is live.
 8. Run `bin/fm-startup-memory-budget.sh report` again after the complete pass.
    Finish at or below the effective budget, or open a concrete captain decision before ending the pass.
-   A secondmate must explicitly report `primary-owned-shared-file-alone-exceeds-budget` when the inherited shared file alone exceeds its allowance, because local curation cannot resolve it.
-   Route that constraint to the primary owner and open one concrete captain decision at the primary owning level that names the shortfall, with exactly these options: raise the affected home's effective budget, or explicitly approve the primary owner trimming or offloading each named shared-file entry.
+   The report measures the vault entry note, the vault queue, and `data/learnings.md`; `data/captain-shared.md` is no longer part of that measured total (it stopped being injected at session start), so an over-budget shared file is a `/stow`-skill-level observation to raise with the user, never something this report can surface for you.
+   If the vault entry note alone exceeds the allowance, that is a vault-editing decision (trim it, or move detail to a linked vault note), not something this pass's archival or offload mechanics can resolve - surface it as a concrete decision instead of silently treating the pass as reset-safe.
    When the convergence precondition skipped eviction, report the exempt pinned floor and the remaining shortfall as that concrete inability rather than archiving eligible knowledge that could not close the gap.
    Only after every safe non-pinned archival, consolidation, offload, and eligible eviction action is exhausted may a remaining excess be attributed to pinned safety, authority, or genuine captain-preference entries.
    In that last-resort case, create one captain-held decision that names the shortfall and each relevant pinned entry, with exactly these options: raise the effective budget, or explicitly approve offloading or trimming a named pinned entry.
@@ -249,7 +253,7 @@ Where the right correction is a judgment you cannot make, leave the record alone
 Legacy entries carry no markers; an unmarked entry is its file's default tier with unknown age, and unknown age is not guilt.
 The first pass after adoption performs a one-time revalidation sweep of editable memory files instead of blanket restamping, while a read-only shared file remains untouched and any required change is routed to its primary owner:
 
-- In `data/captain.md` and `data/captain-shared.md`, every unmarked entry is simply default-pinned and remains exempt from the aging clock, legacy grace cycle, and archive-by-age; consolidation still applies, and only genuine tier deviations receive markers.
+- In `data/captain-shared.md`, every unmarked entry is simply default-pinned and remains exempt from the aging clock, legacy grace cycle, and archive-by-age; consolidation still applies, and only genuine tier deviations receive markers.
 - In `data/learnings.md`, stamp each entry the pass can confirm current with its compact dated marker for today, using a deviating tier letter or `<!--P-->` only where the entry genuinely deviates from the `aging` default.
 - On the first pass that cannot cite independent current-session evidence for an unmarked entry in `data/learnings.md`, add `<!--g-->` as its trailing marker and retain it through the rest of that pass; carrying no date, it persists that the entry has consumed exactly one grace cycle without pretending it was reinforced.
 - Only an entry that already carried `<!--g-->` when this invocation began is on the next-pass branch: replace that marker with the normal dated tier marker if independent current-session evidence confirms the entry; otherwise archive it with provenance `legacy-unvalidated`.
@@ -260,7 +264,7 @@ The first pass after adoption performs a one-time revalidation sweep of editable
 Report the outcome in plain captain-facing language with all of these facts:
 
 - effective startup-memory budget and total estimated tokens before and after;
-- one or more actions for each of `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`, using only `unchanged`, `added`, `rewritten`, `pruned`, `routed`, `archived`, or `proposed-offload`; adding or replacing a migration marker is `rewritten`, never a new action verb such as `migrated`;
+- one or more actions for each of `data/captain-shared.md` (where present) and `data/learnings.md`, using only `unchanged`, `added`, `rewritten`, `pruned`, `routed`, `archived`, or `proposed-offload`; adding or replacing a migration marker is `rewritten`, never a new action verb such as `migrated`; plus one line naming the vault entry note's current token cost and whether it fits the remaining budget;
 - each durable finding filed outside memory and its authoritative owner;
 - each archived entry's reason, each autonomous offload's live destination and actual relief, and, when a pinned candidate was proposed, the `proposed-offload` section with every candidate's fields;
 - every unresolved exception, including a primary-owned shared-file constraint in a secondmate home, and every concrete captain decision opened for an over-budget result;

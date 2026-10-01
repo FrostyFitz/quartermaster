@@ -6,7 +6,11 @@
 #
 # `read` prints the one validated effective budget from
 # config/startup-memory-budget.  `report` prints the stable local estimate for
-# data/captain.md, data/captain-shared.md, and data/learnings.md together.
+# the memory vault (config/agent.md's vault entry note and open-work queue)
+# and data/learnings.md together - the two sources bin/fm-session-start.sh's
+# digest actually inlines every session (captain.md and captain-shared.md
+# stopped being injected when the vault took over user-preference memory;
+# see AGENTS.md's Memory section).
 # Bootstrap owns default materialization; this command never creates or repairs
 # configuration, so an absent, malformed, symlinked, hardlinked, or otherwise
 # unsafe value is a concrete error rather than an inferred default.
@@ -20,6 +24,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
+# shellcheck source=bin/fm-agent-config-lib.sh
+. "$SCRIPT_DIR/fm-agent-config-lib.sh"
 
 usage() {
   sed -n '2,11{s/^# \{0,1\}//;p;}' "$0"
@@ -38,7 +44,9 @@ read_budget() {
 }
 
 report() {
-  local budget bytes tokens presence total=0 shared_tokens=0 role=primary
+  local budget bytes tokens presence total=0 role=primary vault_root=""
+  local vault_file vault_label vault_rel
+
   if ! budget=$(read_budget); then
     return 2
   fi
@@ -50,28 +58,45 @@ report() {
   printf 'estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate\n'
   printf 'role=%s\n' "$role"
   printf 'effective_budget_tokens=%s\n' "$budget"
-  for file in captain.md captain-shared.md learnings.md; do
-    if ! fm_startup_memory_measure_file "$DATA/$file" >/dev/null; then
-      print_error "$FM_STARTUP_MEMORY_BUDGET_ERROR"
-      return 2
-    fi
-    bytes=$FM_STARTUP_MEMORY_MEASURE_BYTES
-    tokens=$FM_STARTUP_MEMORY_MEASURE_TOKENS
-    presence=$FM_STARTUP_MEMORY_MEASURE_PRESENCE
-    total=$((total + tokens))
-    [ "$file" != captain-shared.md ] || shared_tokens=$tokens
-    printf 'file=data/%s bytes=%s estimated_tokens=%s status=%s\n' \
-      "$file" "$bytes" "$tokens" "$presence"
-  done
+
+  if fm_agent_config_read "$CONFIG"; then
+    vault_root=$FM_AGENT_CONFIG_VAULT_ROOT
+  fi
+  if [ -n "$vault_root" ]; then
+    for vault_file in "entry:$FM_AGENT_CONFIG_VAULT_ENTRY" "queue:$FM_AGENT_CONFIG_VAULT_QUEUE"; do
+      vault_label=${vault_file%%:*}
+      vault_rel=${vault_file#*:}
+      if ! fm_startup_memory_measure_file "$vault_root/$vault_rel" >/dev/null; then
+        print_error "$FM_STARTUP_MEMORY_BUDGET_ERROR"
+        return 2
+      fi
+      bytes=$FM_STARTUP_MEMORY_MEASURE_BYTES
+      tokens=$FM_STARTUP_MEMORY_MEASURE_TOKENS
+      presence=$FM_STARTUP_MEMORY_MEASURE_PRESENCE
+      total=$((total + tokens))
+      printf 'file=vault/%s(%s) bytes=%s estimated_tokens=%s status=%s\n' \
+        "$vault_label" "$vault_rel" "$bytes" "$tokens" "$presence"
+    done
+  else
+    printf 'vault=unconfigured (config/agent.md missing or has no vault.root)\n'
+  fi
+
+  if ! fm_startup_memory_measure_file "$DATA/learnings.md" >/dev/null; then
+    print_error "$FM_STARTUP_MEMORY_BUDGET_ERROR"
+    return 2
+  fi
+  bytes=$FM_STARTUP_MEMORY_MEASURE_BYTES
+  tokens=$FM_STARTUP_MEMORY_MEASURE_TOKENS
+  presence=$FM_STARTUP_MEMORY_MEASURE_PRESENCE
+  total=$((total + tokens))
+  printf 'file=data/learnings.md bytes=%s estimated_tokens=%s status=%s\n' \
+    "$bytes" "$tokens" "$presence"
+
   printf 'total_estimated_tokens=%s\n' "$total"
   if fm_startup_memory_decimal_le "$total" "$budget"; then
     printf 'budget_status=within-budget\n'
   else
     printf 'budget_status=over-budget\n'
-  fi
-  if [ "$role" = secondmate ] \
-    && ! fm_startup_memory_decimal_le "$shared_tokens" "$budget"; then
-    printf 'exception=primary-owned-shared-file-alone-exceeds-budget\n'
   fi
 }
 

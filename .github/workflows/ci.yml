@@ -77,21 +77,21 @@ jobs:
       # fm-lint.sh's header documents its mode selection: with no explicit
       # paths, it lints the full canonical set whenever GITHUB_ACTIONS=true or
       # CI=true (so the full-suite lint job below stays CI-coverage-complete
-      # regardless of local diff). Clearing both here is fm-lint.sh's own
-      # documented switch into changed-file mode (see tests/fm-lint.test.sh,
-      # which does the same to exercise it): lint only the canonical files
+      # regardless of local diff). GitHub Actions silently ignores a step
+      # env: override of its own reserved GITHUB_ACTIONS variable, so this
+      # job cannot spoof "not CI" to reach changed-file mode - it must opt in
+      # explicitly with --changed instead (see tests/fm-lint.test.sh, which
+      # exercises --changed the same way): lint only the canonical files
       # changed since the merge-base with origin/main, plus the always-on
       # workflow YAML lint and backend-purity check.
       - name: Lint changed files
         env:
           FM_LINT_REQUIRE_BOUNDS: '1'
           FM_LINT_JOBS: '1'
-          GITHUB_ACTIONS: ''
-          CI: ''
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/fm-lint"
-          bin/fm-lint.sh --telemetry "$RUNNER_TEMP/fm-lint/changed.tsv"
+          bin/fm-lint.sh --changed --telemetry "$RUNNER_TEMP/fm-lint/changed.tsv"
       - name: Upload lint telemetry
         if: always()
         uses: actions/upload-artifact@v4
@@ -125,13 +125,21 @@ jobs:
       - name: Compatibility pointers must stay intact
         run: |
           set -eu
-          [ ! -L CLAUDE.md ] || { echo "::error::CLAUDE.md must be a real @AGENTS.md pointer file, not a symlink"; exit 1; }
+          [ ! -L CLAUDE.md ] || { echo "::error::CLAUDE.md must be a real boot-imports pointer file, not a symlink"; exit 1; }
           tmp=$(mktemp)
           trap 'rm -f "$tmp"' EXIT
           printf '%s\n' \
-            '<!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->' \
-            '@AGENTS.md' >"$tmp"
-          cmp -s CLAUDE.md "$tmp" || { echo "::error::CLAUDE.md must be the canonical @AGENTS.md pointer"; exit 1; }
+            "<!-- Boot imports: AGENTS.md (orchestrator contract), templates/core-rules.md" \
+            "     (universal memory rules), and config/agent.md (this agent's name, persona," \
+            "     and vault). config/agent.md is gitignored and written by the onboarding" \
+            "     skill (.agents/skills/onboarding/SKILL.md) - a missing import is silently" \
+            "     skipped, so this loads fine before onboarding has run. Edit AGENTS.md or" \
+            "     templates/core-rules.md directly; edit config/agent.md directly to change" \
+            "     a setting, or re-run onboarding. -->" \
+            '@AGENTS.md' \
+            '@templates/core-rules.md' \
+            '@config/agent.md' >"$tmp"
+          cmp -s CLAUDE.md "$tmp" || { echo "::error::CLAUDE.md must be the canonical boot-imports pointer"; exit 1; }
           [ "$(readlink .claude/skills)" = "../.agents/skills" ] || { echo "::error::.claude/skills must be a symlink to ../.agents/skills"; exit 1; }
       - name: Personal fleet paths must not be tracked
         run: |

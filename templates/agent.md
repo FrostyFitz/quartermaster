@@ -10,6 +10,12 @@ name: ""
 # What the agent calls the user, e.g. "sir or boss".
 address: ""
 
+# The user's actual name, e.g. "Fitz". Used to mark queue items in the vault's
+# open-work queue as the user's own (a line starting "<user_name>:" routes to
+# Captain's Call in /bearings); distinct from `address`, which is what the
+# agent calls the user in conversation.
+user_name: ""
+
 # One of: professional | friendly | salty-butler | custom.
 # professional/friendly/salty-butler pull their text from
 # templates/persona/tones/<tone>.md at onboarding time and copy it into the

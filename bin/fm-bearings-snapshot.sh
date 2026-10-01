@@ -101,6 +101,13 @@ FLEET="$SCRIPT_DIR/fm-fleet-snapshot.sh"
 # shellcheck source=bin/fm-landed-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-landed-lib.sh"  # FM_LANDED_JQ_DEFS: the shared landed selector
+# shellcheck source=bin/fm-agent-config-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-agent-config-lib.sh"
+
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
 # Bounds (overridable for tests / large fleets).
 FM_BEARINGS_LANDED=${FM_BEARINGS_LANDED:-6}
@@ -114,6 +121,7 @@ FM_BEARINGS_RECORDED_PRS=${FM_BEARINGS_RECORDED_PRS:-20}
 FM_BEARINGS_UNHEALTHY=${FM_BEARINGS_UNHEALTHY:-20}
 FM_BEARINGS_PR_REPOS=${FM_BEARINGS_PR_REPOS:-10}
 FM_BEARINGS_PR_LIMIT=${FM_BEARINGS_PR_LIMIT:-20}
+FM_BEARINGS_VAULT_QUEUE=${FM_BEARINGS_VAULT_QUEUE:-20}
 FM_BEARINGS_PR_TIMEOUT=${FM_BEARINGS_PR_TIMEOUT:-20}
 case "$FM_BEARINGS_PR_TIMEOUT" in ''|*[!0-9]*|0) FM_BEARINGS_PR_TIMEOUT=20 ;; esac
 validate_bound() {  # <name> <value>
@@ -130,6 +138,7 @@ validate_bound FM_BEARINGS_RECORDED_PRS "$FM_BEARINGS_RECORDED_PRS"
 validate_bound FM_BEARINGS_UNHEALTHY "$FM_BEARINGS_UNHEALTHY"
 validate_bound FM_BEARINGS_PR_REPOS "$FM_BEARINGS_PR_REPOS"
 validate_bound FM_BEARINGS_PR_LIMIT "$FM_BEARINGS_PR_LIMIT"
+validate_bound FM_BEARINGS_VAULT_QUEUE "$FM_BEARINGS_VAULT_QUEUE"
 
 usage() {
   cat <<'EOF'
@@ -150,7 +159,17 @@ Default fields: schema, home, generated, prs, in_flight{id,kind,state,repo,name,
   secondmate_reconcile{id,spawn_gen,host,kind,ids},
   decisions_open{id,key,verb,summary,owner}, landed{id,what,artifact,owner},
   gates{id,title,blocked_by,reason,owner,filed}, reports{id,path}, recorded_prs{id,url},
+  vault_queue{state,path,captain{text,project},next{text,project},omitted{captain,next}},
   unhealthy_endpoints{...} (only when non-empty), omitted{surface,reveal}.
+vault_queue projects config/agent.md's vault.root/vault.queue open "- [ ] " checkbox
+  lines: a leading-"**"-stripped item starting "<user_name>:" (case-insensitive) is
+  captain, everything else is next, carrying its trailing " - `project`" tag when
+  present. state is "absent" with no config/agent.md, "unconfigured" with no
+  vault.root, "unreadable" when vault.root is set but the queue file is missing
+  or unreadable (path then names the unresolved queue path), or "ok"; each
+  bucket is bounded by FM_BEARINGS_VAULT_QUEUE (default 20) with an exact
+  omitted count. Never deduped against fleet-sourced rows - the
+  bearings skill renders these labeled "vault:" so the two sources stay distinct.
 Default gates are selected newest filed first before their bound; undated gates
   retain input order after dated gates.
 landed merges this home's Done with registered secondmate homes' Done, bounded by
@@ -345,6 +364,61 @@ EOF
   fi
 fi
 
+# --- vault queue projection (config/agent.md's vault.root/vault.queue) -----
+# Bounded and deterministic like every other section: open "- [ ] " checkbox
+# lines only. An item whose text, after stripping one leading "**", starts
+# with "<user_name>:" case-insensitively is captain's own call; everything
+# else is next work, carrying its trailing " - `project`" tag when present.
+# No config or no vault.root means the projection is empty and explicit
+# (absent vs unconfigured) rather than silently omitted; never cross-reference
+# or dedupe against fleet-sourced decisions/gates - the bearings skill labels
+# these rows "vault:" at render time so the two sources stay distinguishable.
+VAULT_QUEUE_JSON='{"state":"unconfigured","captain":[],"next":[],"omitted":{"captain":0,"next":0}}'
+if fm_agent_config_read "$CONFIG"; then
+  if [ -n "$FM_AGENT_CONFIG_VAULT_ROOT" ]; then
+    VAULT_QUEUE_PATH="$FM_AGENT_CONFIG_VAULT_ROOT/$FM_AGENT_CONFIG_VAULT_QUEUE"
+    if [ -f "$VAULT_QUEUE_PATH" ] && [ -r "$VAULT_QUEUE_PATH" ]; then
+      VAULT_QUEUE_JSON=$(jq -n --rawfile raw "$VAULT_QUEUE_PATH" \
+        --arg user_name "$FM_AGENT_CONFIG_USER_NAME" \
+        --argjson limit "$FM_BEARINGS_VAULT_QUEUE" '
+        ($raw | split("\n") | map(select(test("^- \\[ \\] ")) | sub("^- \\[ \\] "; ""))) as $item_texts
+        | [ $item_texts[] | {
+              project: (if test(" — `[^`]+`$") then capture(" — `(?<p>[^`]+)`$").p else null end),
+              body: (sub(" — `[^`]+`$"; ""))
+            } ] as $parsed
+        | [ $parsed[] | . + {
+              marker_text: (.body | sub("^\\*\\*"; "")),
+              display: (.body | gsub("\\*\\*"; "") | if length > 200 then (.[0:199] + "…") else . end)
+            } ] as $rows
+        | [ $rows[] | . + {
+              is_captain: (
+                ($user_name != "") and
+                ((.marker_text | ascii_downcase) | startswith(($user_name | ascii_downcase) + ":"))
+              )
+            } ] as $classified
+        | ($classified | map(select(.is_captain))) as $captain_all
+        | ($classified | map(select(.is_captain | not))) as $next_all
+        | {
+            state: "ok",
+            captain: ($captain_all[0:$limit] | map({text: .display, project: .project})),
+            next: ($next_all[0:$limit] | map({text: .display, project: .project})),
+            omitted: {
+              captain: (($captain_all | length) - ($captain_all[0:$limit] | length)),
+              next: (($next_all | length) - ($next_all[0:$limit] | length))
+            }
+          }
+      ') || { echo "fm-bearings-snapshot: vault queue projection failed" >&2; exit 1; }
+    else
+      VAULT_QUEUE_JSON=$(jq -n --arg path "$VAULT_QUEUE_PATH" \
+        '{state:"unreadable",path:$path,captain:[],next:[],omitted:{captain:0,next:0}}')
+    fi
+  else
+    VAULT_QUEUE_JSON='{"state":"unconfigured","captain":[],"next":[],"omitted":{"captain":0,"next":0}}'
+  fi
+else
+  VAULT_QUEUE_JSON='{"state":"absent","captain":[],"next":[],"omitted":{"captain":0,"next":0}}'
+fi
+
 # --- projection: canonical snapshot -> fm-bearings.v1 model (JSON) ----------
 BEARINGS_TODAY=${NOW%%T*}
 case "$BEARINGS_TODAY" in
@@ -380,7 +454,8 @@ MODEL=$(printf '%s' "$SNAP" | jq \
   --argjson pr_rows_capped "$PR_ROWS_CAPPED" \
   --argjson pr_rows_min_total "$PR_ROWS_MIN_TOTAL" \
   --argjson return_catchup "$RETURN_CATCHUP" \
-  --argjson candidate_prs "$CANDIDATE_PRS" "$FM_LANDED_JQ_DEFS"'
+  --argjson candidate_prs "$CANDIDATE_PRS" \
+  --argjson vault_queue "$VAULT_QUEUE_JSON" "$FM_LANDED_JQ_DEFS"'
   def trunc($n): if . == null then null else
     (tostring | gsub("\\s+"; " ") | if (length > $n) then (.[:$n] + "…") else . end) end;
   def fit($n):
@@ -647,7 +722,8 @@ MODEL=$(printf '%s' "$SNAP" | jq \
               + ($gates_all | newest_filed_first
                  | if $all_queued == 1 then . else .[:$gates_n] end)),
       reports: (if $all_reports == 1 then $reports_all else $reports_all[:$reports_n] end),
-      recorded_prs: (if $all_recorded_prs == 1 then $recorded_prs_all else $recorded_prs_all[:$recorded_prs_n] end)
+      recorded_prs: (if $all_recorded_prs == 1 then $recorded_prs_all else $recorded_prs_all[:$recorded_prs_n] end),
+      vault_queue: $vault_queue
     }
   | . + (if ($unhealthy_all | length) > 0 then
            {unhealthy_endpoints:(if $all_unhealthy == 1 then $unhealthy_all else $unhealthy_all[:$unhealthy_n] end)}

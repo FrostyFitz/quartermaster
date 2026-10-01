@@ -166,24 +166,40 @@ test_safe_parser_rejects_ambiguous_and_unsafe_values() {
   pass "budget parser accepts one exact positive value and rejects malformed or unsafe inputs"
 }
 
-test_budget_accounting_reports_all_three_files_and_safe_failure() {
-  local home out rc outside
+write_fixture_agent_config() {  # <config-dir> <vault-root>
+  cat > "$1/agent.md" <<EOF
+---
+name: "Tester"
+address: "boss"
+vault:
+  root: "$2"
+  entry: "Entry.md"
+  queue: "Queue.md"
+---
+# Persona
+EOF
+}
+
+test_budget_accounting_reports_vault_and_learnings_and_safe_failure() {
+  local home out rc outside vault
   home="$TMP_ROOT/accounting-home"
-  mkdir -p "$home/config" "$home/data"
+  vault="$TMP_ROOT/accounting-vault"
+  mkdir -p "$home/config" "$home/data" "$vault"
   printf '10\n' > "$home/config/startup-memory-budget"
-  printf 'abc\n' > "$home/data/captain.md"
-  printf 'abcdef\n' > "$home/data/captain-shared.md"
+  write_fixture_agent_config "$home/config" "$vault"
+  printf 'abc\n' > "$vault/Entry.md"
+  printf 'abcdef\n' > "$vault/Queue.md"
 
   out=$(FM_HOME="$home" "$BUDGET" report)
   assert_contains "$out" 'estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate' \
     "report did not name the stable estimator"
-  assert_contains "$out" 'file=data/captain.md bytes=4 estimated_tokens=2 status=present' \
-    "report did not account for captain memory"
-  assert_contains "$out" 'file=data/captain-shared.md bytes=7 estimated_tokens=3 status=present' \
-    "report did not account for shared memory"
+  assert_contains "$out" 'file=vault/entry(Entry.md) bytes=4 estimated_tokens=2 status=present' \
+    "report did not account for the vault entry note"
+  assert_contains "$out" 'file=vault/queue(Queue.md) bytes=7 estimated_tokens=3 status=present' \
+    "report did not account for the vault queue"
   assert_contains "$out" 'file=data/learnings.md bytes=0 estimated_tokens=0 status=absent' \
     "report did not account for absent learnings"
-  assert_contains "$out" 'total_estimated_tokens=5' "report total was not the sum of all three files"
+  assert_contains "$out" 'total_estimated_tokens=5' "report total was not the sum of vault entry, queue, and learnings"
   assert_contains "$out" 'budget_status=within-budget' "report did not classify the initial total"
 
   printf 'abcdefabcdefabcdefabcdef\n' > "$home/data/learnings.md"
@@ -192,8 +208,8 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
 
   outside="$TMP_ROOT/accounting-outside"
   printf 'outside\n' > "$outside"
-  rm -f "$home/data/captain.md"
-  ln -s "$outside" "$home/data/captain.md"
+  rm -f "$vault/Entry.md"
+  ln -s "$outside" "$vault/Entry.md"
   set +e
   out=$(FM_HOME="$home" "$BUDGET" report 2>&1)
   rc=$?
@@ -202,7 +218,23 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
   assert_contains "$out" 'memory file is not an ordinary regular file' \
     "accounting failure did not identify the unsafe memory file"
   [ "$(<"$outside")" = outside ] || fail "accounting failure changed a symlink target"
-  pass "budget accounting sums the three startup files and reports safe failures"
+  pass "budget accounting sums the vault entry, vault queue, and learnings files, and reports safe failures"
+}
+
+test_budget_accounting_handles_unconfigured_vault() {
+  local home out
+  home="$TMP_ROOT/accounting-no-vault-home"
+  mkdir -p "$home/config" "$home/data"
+  printf '10\n' > "$home/config/startup-memory-budget"
+  printf 'abcdef\n' > "$home/data/learnings.md"
+
+  out=$(FM_HOME="$home" "$BUDGET" report)
+  assert_contains "$out" 'vault=unconfigured (config/agent.md missing or has no vault.root)' \
+    "report did not disclose a missing config/agent.md"
+  assert_contains "$out" 'file=data/learnings.md bytes=7 estimated_tokens=3 status=present' \
+    "report did not still account for learnings without a vault"
+  assert_contains "$out" 'total_estimated_tokens=3' "report total ignored the absent vault entirely"
+  pass "budget accounting discloses an unconfigured vault instead of failing"
 }
 
 new_propagation_world() {
@@ -328,7 +360,8 @@ test_primary_budget_converges_with_exact_reread_and_safe_failures() {
 
 test_primary_bootstrap_materializes_visible_default
 test_safe_parser_rejects_ambiguous_and_unsafe_values
-test_budget_accounting_reports_all_three_files_and_safe_failure
+test_budget_accounting_reports_vault_and_learnings_and_safe_failure
+test_budget_accounting_handles_unconfigured_vault
 test_primary_budget_converges_with_exact_reread_and_safe_failures
 
 echo '# all fm-startup-memory-budget tests passed'
