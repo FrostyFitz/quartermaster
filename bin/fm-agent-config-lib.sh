@@ -38,6 +38,7 @@ fm_agent_config_read() {
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
   command -v python3 >/dev/null 2>&1 || return 1
   while IFS=$'\t' read -r key value; do
+    # shellcheck disable=SC2034 # Every branch sets a public result consumed by the caller after sourcing.
     case "$key" in
       name) FM_AGENT_CONFIG_NAME=$value ;;
       user_name) FM_AGENT_CONFIG_USER_NAME=$value ;;
