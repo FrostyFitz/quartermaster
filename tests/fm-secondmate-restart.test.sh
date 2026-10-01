@@ -177,7 +177,7 @@ add_local_mate() {
 }
 
 # add_repo_backed_mate <case-dir> <id> [harness] [backend-line]
-# Like add_local_mate, but the world is the one /updatefirstmate actually runs
+# Like add_local_mate, but the world is the one /update actually runs
 # against: a bare origin, a firstmate repo clone on its default branch, and the
 # mate's home as a DETACHED worktree of that repo already sitting on origin's tip.
 # That "already current" home is the shape the old classifier skipped entirely.
@@ -225,7 +225,7 @@ add_repo_backed_mate() {  # <case-dir> <id> [harness] [backend]
   printf '%s' "$smhome" > "$dir/fake/cwd"
 }
 
-# run_update_in_case <case-dir>: the real /updatefirstmate mechanics over that world.
+# run_update_in_case <case-dir>: the real /update mechanics over that world.
 run_update_in_case() {
   local dir=$1
   env PATH="$dir/fakebin:$PATH" FM_FAKE_DIR="$dir/fake" \

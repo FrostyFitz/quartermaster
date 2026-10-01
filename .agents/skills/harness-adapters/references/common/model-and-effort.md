@@ -24,7 +24,7 @@ A harness with no verified interactive effort flag follows the same record-and-o
 
 ## Harness and provider identity
 
-Harness identity is independent of model provider: the harness is the runtime Firstmate spawns, and the model string alone does not name which provider serves it.
+Harness identity is independent of model provider: the harness is the runtime Quartermaster spawns, and the model string alone does not name which provider serves it.
 
 No script resolves credential provenance for you.
 Establish it from the tool's discovery surface and `quota-axi auth --json` per-provider sources, and show the reasoning rather than inferring it from a name.

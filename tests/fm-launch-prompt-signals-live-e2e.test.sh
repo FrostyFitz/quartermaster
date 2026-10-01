@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Live guard for bin/fm-busy-lib.sh's launch-prompt backstop (live-harness-optin
-# family). Per .agents/skills/firstmate-coding-guidelines "Harness-dependent
+# family). Per .agents/skills/coding-guidelines "Harness-dependent
 # checks", a classifier built on vendor-rendered dialog text must be proven
 # against the REAL installed harness, because a stub can only confirm the
 # assumption already written into the stub.

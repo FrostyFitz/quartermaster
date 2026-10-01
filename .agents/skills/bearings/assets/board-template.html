@@ -6,7 +6,7 @@
 <title>Bearings - fleet board</title>
 <style>
 /* ============================================================
-   Bearings board - Firstmate Design System, inlined for portability.
+   Bearings board - Quartermaster Design System, inlined for portability.
    Tokens copied verbatim from myfirstmate priv/static/assets/app.css
    (the compiled adoption of .agents/skills/firstmate-design).
    ============================================================ */
@@ -396,7 +396,7 @@ __FM_BEARINGS_BOARD_DATA__
     h.textContent = "This board could not load";
     var d = document.createElement("p");
     d.className = "bb-decision__detail";
-    d.textContent = msg + " - ask firstmate to rebuild the board.";
+    d.textContent = msg + " - ask quartermaster to rebuild the board.";
     pad.appendChild(h);
     pad.appendChild(d);
     card.appendChild(pad);
@@ -712,10 +712,10 @@ __FM_BEARINGS_BOARD_DATA__
   document.getElementById("bb-charted-sub").textContent =
     chartedMoreQueued ? "showing " + chartedShown + " of " + chartedTotal : "";
   if (chartedMoreQueued) {
-    ch.appendChild(el("span", "bb-morechip", "+" + chartedMoreQueued + " more queued - ask firstmate for the full chart"));
+    ch.appendChild(el("span", "bb-morechip", "+" + chartedMoreQueued + " more queued - ask quartermaster for the full chart"));
   }
   if (chartedMoreWarnings) {
-    ch.appendChild(el("span", "bb-morechip", "+" + chartedMoreWarnings + " more repair warning" + (chartedMoreWarnings === 1 ? "" : "s") + " - ask firstmate for the full chart"));
+    ch.appendChild(el("span", "bb-morechip", "+" + chartedMoreWarnings + " more repair warning" + (chartedMoreWarnings === 1 ? "" : "s") + " - ask quartermaster for the full chart"));
   }
 
   if (anyPickable) {
