@@ -4,13 +4,13 @@
 # starting over. Frontmatter is machine-read; everything below the closing
 # --- is free persona prose.
 
-# The agent's name, e.g. Porygon.
+# The agent's name, e.g. Nova.
 name: ""
 
 # What the agent calls the user, e.g. "sir or boss".
 address: ""
 
-# The user's actual name, e.g. "Fitz". Used to mark queue items in the vault's
+# The user's actual name, e.g. "Alex". Used to mark queue items in the vault's
 # open-work queue as the user's own (a line starting "<user_name>:" routes to
 # Captain's Call in /bearings); distinct from `address`, which is what the
 # agent calls the user in conversation.

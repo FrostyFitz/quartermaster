@@ -13,7 +13,7 @@ Let the control plane verify postconditions.
 ## Trust and skill submission
 
 Inspect after spawn within the tool's readiness window.
-Select only its documented trust choice from the active Firstmate home, binding `FM_HOME` unless already correct, then inspect again under the router-owned completion postcondition.
+Select only its documented trust choice from the active Quartermaster home, binding `FM_HOME` unless already correct, then inspect again under the router-owned completion postcondition.
 No observed dialog proves only that launch.
 
 Load `references/harness/claude.md`; its workspace-trust section owns the non-key-answerable gate and spawn-time pre-registration for every spawn kind.

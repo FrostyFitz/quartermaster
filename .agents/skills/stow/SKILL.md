@@ -6,13 +6,13 @@ metadata:
   internal: true
 ---
 
-<!-- maintainers: this is the firstmate-internal skill. The public, installer-facing counterpart lives at skills/stow/SKILL.md - deliberately a separate file with no shared code or environment branching. Keep them independent. -->
+<!-- maintainers: this is the quartermaster-internal skill. The public, installer-facing counterpart lives at skills/stow/SKILL.md - deliberately a separate file with no shared code or environment branching. Keep them independent. -->
 
 # stow
 
 Sweep this session for durable knowledge and open-work record state that exist only in conversation, then leave the next session with a compact current operating map rather than an accumulating journal.
 Memory entries are tiered and decay between passes, and stale material retires to a cold archive instead of being deleted.
-This skill writes only through the existing Firstmate ownership and write boundaries.
+This skill writes only through the existing Quartermaster ownership and write boundaries.
 
 Durable per-agent preferences and working style now route to the memory vault's entry note, and personal standing rules route to `config/agent.md`'s Personal rules section (AGENTS.md's Memory section owns the split; `data/captain.md` is no longer a routing destination, and nothing creates it fresh).
 The tiered marker/decay machinery below still governs `data/learnings.md` exactly as written, and separately governs `data/captain-shared.md` where a home still carries one, purely as inert fleet-wide secondmate-sharing plumbing independent of the per-agent vault.
@@ -172,14 +172,14 @@ Every test must hold for a candidate:
 
 ### Destinations
 
-**Hard rule: the stow process never creates or writes a firstmate-repo-tracked skill.**
-**Every skill stow's offload produces for a Firstmate home is user-owned and local, excluded through that active home's repository-local exclude file resolved with `git -C "$home_root" rev-parse --git-path info/exclude`; contributing a lesson to the shared tracked template is a separate deliberate captain action, never automatic.**
+**Hard rule: the stow process never creates or writes a quartermaster-repo-tracked skill.**
+**Every skill stow's offload produces for a Quartermaster home is user-owned and local, excluded through that active home's repository-local exclude file resolved with `git -C "$home_root" rev-parse --git-path info/exclude`; contributing a lesson to the shared tracked template is a separate deliberate captain action, never automatic.**
 Approved project-level destinations are not produced by stow: they ship normally through that project's own registered delivery path.
 
 - A user-owned local skill: a directory under `.agents/skills/<freeform-name>/` whose path is appended to the active home clone's repository-local exclude file, never to a `.gitignore`.
-  Resolve `home_root` to `$FM_HOME` when it is set and otherwise to the Firstmate code root, and anchor every destination index check, exclude-path lookup, and ignore verification to that root with `git -C "$home_root"`.
+  Resolve `home_root` to `$FM_HOME` when it is set and otherwise to the Quartermaster code root, and anchor every destination index check, exclude-path lookup, and ignore verification to that root with `git -C "$home_root"`.
   Before approval and again before migration, validate that the chosen freeform destination under `home_root` is absent from that home's git index and collides with no existing file or directory, and reject the destination if either check fails.
-  The name is freeform with no user-vs-firstmate naming convention, the skill stays per-home and untracked, and the harness still lists and JIT-loads it because skill discovery scans the filesystem and ignores git status (verified in `docs/verification/stow-memory.md`).
+  The name is freeform with no user-vs-quartermaster naming convention, the skill stays per-home and untracked, and the harness still lists and JIT-loads it because skill discovery scans the filesystem and ignores git status (verified in `docs/verification/stow-memory.md`).
   Its precise, condition-stated description line is its entire trigger; it gets no `AGENTS.md` declaration because `AGENTS.md` is shared tracked material.
   Because this destination is local and untracked, it is also the JIT home for private conditional knowledge that no committed surface may hold.
 - An already-existing user-owned local on-demand note with an established trigger, after confirming it is untracked, private, and able to hold the quoted entry.
@@ -187,7 +187,7 @@ Approved project-level destinations are not produced by stow: they ship normally
 - A project-level skill in the project's own repository, for situation-conditional knowledge within one project, through a normal ship task and the project's registered delivery mode.
   A project's committed `AGENTS.md` is never an offload destination: crewmates correct it but only humans extend it (AGENTS.md section 6).
 
-Forbidden destinations: any firstmate-repo-tracked skill per the hard rule; firstmate's own `AGENTS.md`, which is always-loaded for every fleet session; `docs/` alone, which is never agent-loaded on demand, though a skill body may point into docs for depth; and any committed surface for private content.
+Forbidden destinations: any quartermaster-repo-tracked skill per the hard rule; quartermaster's own `AGENTS.md`, which is always-loaded for every fleet session; `docs/` alone, which is never agent-loaded on demand, though a skill body may point into docs for depth; and any committed surface for private content.
 A local skill exists only in this home, so offloading an entry out of `data/captain-shared.md` removes it from every inheriting home's always-injected memory: the proposal must say so, and the default for shared entries is keep.
 
 ### Flow: reduce, approve, migrate, remove
@@ -201,7 +201,7 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
    Preserve each candidate's approval state in that item, and require explicit plain-chat approval for that named item before any migration.
    If the captain never answers, nothing migrates and the held item persists, but it is never treated as budget relief.
 3. Migrate an approved pinned candidate outside this pass.
-   Resolve `home_root` to `$FM_HOME` when it is set and otherwise to the Firstmate code root, then re-validate the approved local-skill destination under that root for both index absence with `git -C "$home_root"` and filesystem collision absence.
+   Resolve `home_root` to `$FM_HOME` when it is set and otherwise to the Quartermaster code root, then re-validate the approved local-skill destination under that root for both index absence with `git -C "$home_root"` and filesystem collision absence.
    Before creating the destination or writing any private content, resolve the exclude file with `git -C "$home_root" rev-parse --git-path info/exclude`, append the destination directory path to it, and verify the future `SKILL.md` path is ignored with `git -C "$home_root" check-ignore`.
    Only after that verification succeeds, create the destination and write the `SKILL.md` with its precise description trigger, then confirm the skill appears in a fresh session's skill index.
    If any migration step fails, remove the destination content and the exclude rule written by this attempt, leaving neither partial private content nor a partial rule behind.
@@ -223,10 +223,10 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
    - Captain preferences and fleet-local operational facts belong in the destination selected by AGENTS.md after the required whole-file curation pass.
      Create `data/learnings.md` only for a genuinely new local learning with no stronger owner.
    - In a primary home, curate shared captain preferences only under the existing primary-authoritative shared-preference contract.
-     In a secondmate home, route a newly discovered shared preference to the main firstmate through marked status or a document pointer instead of editing the inherited file.
+     In a secondmate home, route a newly discovered shared preference to the main quartermaster through marked status or a document pointer instead of editing the inherited file.
    - Project-intrinsic knowledge never goes into a project's `AGENTS.md` through this fleet: a crewmate edits those files only to correct factually wrong information (AGENTS.md section 6), so no ship task carries an addition.
      Keep the candidate in `data/learnings.md` or surface it in the completion receipt so the captain can extend the file by hand.
-   - Knowledge general to every Firstmate user belongs in this repo's shared tracked material through the normal branch, no-mistakes, PR, and captain-merge path.
+   - Knowledge general to every Quartermaster user belongs in this repo's shared tracked material through the normal branch, no-mistakes, PR, and captain-merge path.
    - For task-scoped notes, inspect the item with `bin/fm-tasks-axi.sh show <id> --full`, classify the change as new, duplicate, superseding, or obsolete, then use a considered replacement body through `bin/fm-tasks-axi.sh update <id> --body-file <path>`.
      Use `--archive-body` when recoverability matters.
      Never append.
@@ -305,6 +305,6 @@ The session is reset-safe only when every home is within its own budget with no 
 
 The stow pass itself must never store, create, or edit a skill as a destination for any finding.
 The exclusion binds the pass as a writer: proposing an offload and letting the migration step execute a captain-approved candidate later is not the pass storing a skill.
-Every Firstmate-home skill that migration produces is user-owned and local under the destinations hard rule, while an approved project-level destination is produced and shipped through that project's registered delivery path, never by stow.
-Changing firstmate's tracked `.agents/skills/` or public `skills/` remains a deliberately scoped Firstmate repository task through its pipeline, never a stow product.
+Every Quartermaster-home skill that migration produces is user-owned and local under the destinations hard rule, while an approved project-level destination is produced and shipped through that project's registered delivery path, never by stow.
+Changing quartermaster's tracked `.agents/skills/` or public `skills/` remains a deliberately scoped Quartermaster repository task through its pipeline, never a stow product.
 Outside a captain-approved offload, generalizable knowledge still routes to shared tracked material through its pipeline and fleet-local knowledge to `data/`.

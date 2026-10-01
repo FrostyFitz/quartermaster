@@ -1,6 +1,6 @@
 # Primary-session delegation guard
 
-This document is the authoritative human-readable contract for the guard that stops a firstmate primary from delegating work outside the fleet.
+This document is the authoritative human-readable contract for the guard that stops a quartermaster primary from delegating work outside the fleet.
 
 The shipped mechanism is `bin/fm-subagent-pretool-check.sh`, a PreToolUse guard that denies a delegation-SHAPED tool name in a genuine primary home.
 Claude primaries should also use an untracked per-home local `permissions.deny` list as hardening for known Claude delegation tools, because it removes them from the model's schema entirely.
@@ -8,7 +8,7 @@ That deny list must not ship in tracked `.claude/settings.json` because it is Cl
 
 ## Why this exists
 
-On 2026-07-22 a firstmate primary ran four workers through Claude Code's built-in subagent tool instead of `bin/fm-spawn.sh`.
+On 2026-07-22 a quartermaster primary ran four workers through Claude Code's built-in subagent tool instead of `bin/fm-spawn.sh`.
 Three consequences were observed, not hypothesized.
 
 - The fleet view showed zero work under way for the whole run, because no `state/<id>.meta` and no `data/<id>/brief.md` were ever created.
@@ -57,8 +57,8 @@ Three exclusions keep the shape test from producing false positives.
   The shipped guard stays narrower on purpose so it can never be the reason a runaway task cannot be stopped.
 - `PLAN_ONLY_TOOLS`: the exact names `taskcreate` and `taskupdate` are allowed.
   These write, which is why they are a separate list rather than more entries in the observe-or-stop one, but what they write is the harness's session-local todo list.
-  That list has no executor: it spawns no agent, allocates no worktree, registers no schedule, and starts nothing that could outlive the session or escape a firstmate guard.
-  So it is not the "work, agent, schedule, or isolated workspace that firstmate would not know about" the guard exists to stop, and the stem match on `task` is a false positive rather than a policy.
+  That list has no executor: it spawns no agent, allocates no worktree, registers no schedule, and starts nothing that could outlive the session or escape a quartermaster guard.
+  So it is not the "work, agent, schedule, or isolated workspace that quartermaster would not know about" the guard exists to stop, and the stem match on `task` is a false positive rather than a policy.
   The cost of the false positive was concrete: the primary could not track its own plan, and the deny text told it to run `bin/fm-brief.sh` and `bin/fm-spawn.sh` to create a todo entry.
 
 Both exclusion lists match the whole normalized name, never a substring, so neither can widen by accident: `TaskCreateAgent` and `RemoteTaskCreate` stay denied.
@@ -133,7 +133,7 @@ It costs one line and removes the failure mode where a rename or a rollback sile
 
 ## Scope
 
-The shipped hook fires only in a genuine firstmate primary home, using the shared predicate `fm_primary_scope_matches` from `bin/fm-primary-scope-lib.sh`.
+The shipped hook fires only in a genuine quartermaster primary home, using the shared predicate `fm_primary_scope_matches` from `bin/fm-primary-scope-lib.sh`.
 This is the same predicate `bin/fm-sessionstart-nudge.sh` and `bin/fm-turnend-guard.sh` use, so the three tracked primary-scoped hooks cannot drift apart.
 
 A home is in scope when it has `AGENTS.md`, a `bin/` directory, an existing state directory, and either a plain checkout where git-dir equals git-common-dir or a valid `.fm-secondmate-home` marker.
@@ -141,7 +141,7 @@ A marked secondmate home is in scope on purpose: it operates its own fleet and m
 
 A crewmate's disposable task worktree is a linked git worktree, which is the shape `bin/fm-spawn.sh` always hands out, so it is out of scope.
 A crewmate using delegation tools inside its own task worktree is legitimate and stays allowed.
-A non-firstmate repo is out of scope.
+A non-quartermaster repo is out of scope.
 Any failure to confirm the home is inert, never a block, so a broken environment can never deny a tool call.
 
 A local Claude deny list is upstream of hook scope and removes known Claude delegation tools wherever Claude applies it.
@@ -234,7 +234,7 @@ This distinction matters when reading the next result: a tool absent from a plai
 
 ### Local deny-list hardening
 
-Run in a scratch firstmate-shaped project containing `AGENTS.md`, `state/`, a full copy of `bin/`, and a Claude settings file containing the local deny list exactly as recommended on that date, which was the 18-name form that still included `TaskCreate` and `TaskUpdate`.
+Run in a scratch quartermaster-shaped project containing `AGENTS.md`, `state/`, a full copy of `bin/`, and a Claude settings file containing the local deny list exactly as recommended on that date, which was the 18-name form that still included `TaskCreate` and `TaskUpdate`.
 The result validates that local deny list rather than tracked repo state, and the recommendation above has since dropped those two session-local todo tools.
 Asking for deferred entries explicitly returned:
 
@@ -293,7 +293,7 @@ The live consequence is confirmed by the shipped-guard result above: Claude hono
 ## Automated validation
 
 `tests/fm-subagent-pretool-check.test.sh` owns the acceptance matrix and is registered in the `pure-contract-unit` family in `bin/fm-test-run.sh`.
-It covers the tracked Claude settings boundary that forbids a `permissions` key; the match-all Claude hook registration; denial of every work-creating delegation tool by shape; denial of twelve hypothetical future tool names that appear on no list; the observe-or-stop, plan-only, and MCP exclusions; the exactness of the plan-only exclusion against six near-miss names a substring or shorter-stem widening would release; the scout-present and scout-absent message variants; the escape hatch including its fail-closed values; inertness in a linked task worktree and in a non-firstmate repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the preserved `Bash` seatbelts and `Stop` guard.
+It covers the tracked Claude settings boundary that forbids a `permissions` key; the match-all Claude hook registration; denial of every work-creating delegation tool by shape; denial of twelve hypothetical future tool names that appear on no list; the observe-or-stop, plan-only, and MCP exclusions; the exactness of the plan-only exclusion against six near-miss names a substring or shorter-stem widening would release; the scout-present and scout-absent message variants; the escape hatch including its fail-closed values; inertness in a linked task worktree and in a non-quartermaster repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the preserved `Bash` seatbelts and `Stop` guard.
 
 Run:
 
@@ -306,7 +306,7 @@ tests/fm-subagent-pretool-check.test.sh
 ## Known residual gap
 
 This change does not close the deeper harness-agnostic defect.
-Every firstmate guard's in-flight-work branch keys off `state/<id>.meta`, and only `bin/fm-spawn.sh` writes that record.
+Every quartermaster guard's in-flight-work branch keys off `state/<id>.meta`, and only `bin/fm-spawn.sh` writes that record.
 `bin/fm-supervision-lib.sh` also recognizes a Relay poll as supervision need, but unaccounted primary work still contributes nothing to that predicate.
 Without an independent Relay need, unaccounted primary work therefore reads as idle rather than suspicious.
 

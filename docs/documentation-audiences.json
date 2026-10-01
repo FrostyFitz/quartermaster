@@ -31,7 +31,7 @@
   ],
   "requiredOwnerPointers": [
     {
-      "source": ".agents/skills/firstmate-coding-guidelines/SKILL.md",
+      "source": ".agents/skills/coding-guidelines/SKILL.md",
       "target": "docs/documentation-audiences.md"
     },
     {
@@ -113,7 +113,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/firstmate-coding-guidelines/SKILL.md",
+      "path": ".agents/skills/coding-guidelines/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -169,7 +169,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/updatefirstmate/SKILL.md",
+      "path": ".agents/skills/update/SKILL.md",
       "audience": "agent-runtime"
     },
     {

@@ -6,7 +6,7 @@
 # follows the constant self-describing doorbell line: list the inbox, read and
 # act on its records in numeric order, then mv each into handled/. A stub can
 # only confirm the assumption already
-# written into the stub, so per .agents/skills/firstmate-coding-guidelines
+# written into the stub, so per .agents/skills/coding-guidelines
 # this is proven against the installed Claude Code: it is launched idle in an
 # isolated tmux server, steered through the REAL fm-send (durable record +
 # doorbell), and must both ACT on the instruction (create a named file) and

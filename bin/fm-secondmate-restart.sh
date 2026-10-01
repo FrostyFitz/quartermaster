@@ -4,7 +4,7 @@
 #
 # Usage: fm-secondmate-restart.sh <secondmate-id>... [--help]
 #
-# This is the executable half of /updatefirstmate's reload step. A running agent
+# This is the executable half of /update's reload step. A running agent
 # holds AGENTS.md and every skill it has loaded frozen from launch, and no
 # verified harness offers a reload, so a re-read steer cannot replace either -
 # it appends a second copy of the mate's own job description with no defined
@@ -105,7 +105,7 @@ for arg in "$@"; do
   case "$arg" in
     -*) echo "error: unexpected argument '$arg'" >&2; usage >&2; exit 2 ;;
   esac
-  # /updatefirstmate's action line names each mate by its fm-<id> selector; the
+  # /update's action line names each mate by its fm-<id> selector; the
   # bare id is equally acceptable so a hand-run stays natural.
   id=${arg#fm-}
   case "$id" in ''|*[!A-Za-z0-9._-]*) echo "error: invalid second mate id: $arg" >&2; exit 2 ;; esac

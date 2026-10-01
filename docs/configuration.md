@@ -1,13 +1,13 @@
 # Configuration
 
-Configure where Firstmate keeps its files, which tools launch workers, and how supervision runs.
+Configure where Quartermaster keeps its files, which tools launch workers, and how supervision runs.
 Start with the directory layout, then use the setting reference for the behavior you want to change.
 
 ## Find a setting
 
 | What you want to configure | Start here |
 | --- | --- |
-| Firstmate's code, private files, or project location | [FM_HOME](#fm_home) and [operational home layout](#operational-home-layout-and-state) |
+| Quartermaster's code, private files, or project location | [FM_HOME](#fm_home) and [operational home layout](#operational-home-layout-and-state) |
 | Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
 | Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-memory-vault--datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
@@ -17,11 +17,11 @@ Start with the directory layout, then use the setting reference for the behavior
 
 ## FM_HOME
 
-`FM_HOME` selects the operational home for one firstmate instance.
+`FM_HOME` selects the operational home for one quartermaster instance.
 
 | Location | What it contains | Default relationship |
 | --- | --- | --- |
-| Firstmate repo root | Shared code, including the scripts in this repo's `bin/` | Most scripts also use this as the operational home when `FM_HOME` is unset. |
+| Quartermaster repo root | Shared code, including the scripts in this repo's `bin/` | Most scripts also use this as the operational home when `FM_HOME` is unset. |
 | Operational home | Private `state/`, `data/`, `config/`, and `projects/` | Selected by `FM_HOME`. |
 | Projects directory | Local project clones | Under the operational home; `FM_PROJECTS_OVERRIDE` can select a different directory for tests and specialized harness setup. |
 
@@ -30,7 +30,7 @@ When it is set, scripts still run from this repo's `bin/`, while `state/`, `data
 
 ### Root and directory overrides
 
-`FM_ROOT_OVERRIDE` overrides the firstmate repo root used by scripts, including the primary checkout watched by the worktree-tangle guard.
+`FM_ROOT_OVERRIDE` overrides the quartermaster repo root used by scripts, including the primary checkout watched by the worktree-tangle guard.
 When `FM_HOME` is unset, it also behaves as the old whole-root override.
 
 `bin/fm-send.sh` requires `FM_HOME` to be set before resolving a target.
@@ -92,7 +92,7 @@ Each effective `FM_HOME` contains private operational directories.
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
 
 `projects/` holds local project clones.
-Firstmate reads these clones, but changes them only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
+Quartermaster reads these clones, but changes them only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
 Untracked files and directories whose names begin with `scratchpad` are also gitignored, so temporary scratch does not make porcelain-based secondmate sync guards treat a home as dirty.
 
 ### Format and lifecycle references
@@ -167,7 +167,7 @@ While the home runs the host, main's lease-checked commands also take the per-ta
 ## Backlog backend (.tasks.toml / config/backlog-backend)
 
 The tracked `.tasks.toml` pins the default `tasks-axi` markdown backend to `data/backlog.md`, with `done_keep = 10` and an archive at `data/done-archive.md`.
-A home may instead select another tasks-axi adapter such as Beads through its own `.tasks.toml` or `TASKS_AXI_BACKEND`; firstmate still uses only tasks-axi verbs for routine backlog reads and mutations, and the adapter maps `start` and evidence-bearing `done` transitions to its native statuses and evidence fields.
+A home may instead select another tasks-axi adapter such as Beads through its own `.tasks.toml` or `TASKS_AXI_BACKEND`; quartermaster still uses only tasks-axi verbs for routine backlog reads and mutations, and the adapter maps `start` and evidence-bearing `done` transitions to its native statuses and evidence fields.
 
 ### Captain holds on Beads
 
@@ -212,7 +212,7 @@ Secondmate handoffs bypass that routine-backend choice: `fm-backlog-handoff.sh` 
 It moves in-scope `## Queued` items only and refuses `## In flight` and historical `## Done` records, which stay with their home for pruning or archiving.
 
 Handoff item bodies must use at least two leading spaces, and the helper refuses a selected item with a single-space or tab-indented continuation rather than risk orphaning it.
-Because bootstrap requires `tasks-axi` on `PATH` on every profile, that delegation works fleet-wide, and the `config/backlog-backend=manual` knob governs firstmate's own hand-editing of its backlog, not this validated helper.
+Because bootstrap requires `tasks-axi` on `PATH` on every profile, that delegation works fleet-wide, and the `config/backlog-backend=manual` knob governs quartermaster's own hand-editing of its backlog, not this validated helper.
 
 ### Required tools and manual mode
 
@@ -232,7 +232,7 @@ tasks-axi replaces its target by renaming a temporary file over it.
 If the target is a symlink, the write replaces it with a regular file.
 Linking the code-root copy into the home therefore forks the queue on the first write instead of keeping the copies in sync.
 
-Run every routine Firstmate backlog command through [`bin/fm-tasks-axi.sh`](../bin/fm-tasks-axi.sh).
+Run every routine Quartermaster backlog command through [`bin/fm-tasks-axi.sh`](../bin/fm-tasks-axi.sh).
 Like lifecycle transitions, it addresses this home's backlog and archive from any working directory.
 Bootstrap reports a code-root `data/backlog.md` or `data/done-archive.md` that is not this home's own file as a `BACKLOG_RECONCILE: code-root ...` line, even in a read-only session.
 
@@ -265,7 +265,7 @@ Auto-detected cmux prints a stderr notice naming `config/backend` and `--backend
 
 ### Accepted backends and secondmate limits
 
-Firstmate documents a setup path only for `tmux` and `cmux`; `bin/fm-backend.sh`'s spawn-capable set (`FM_BACKEND_SPAWN`) still recognizes `herdr`, `zellij`, and `orca` at the backend layer, but none of the three has a supported setup guide and none is part of the current onboarding surface.
+Quartermaster documents a setup path only for `tmux` and `cmux`; `bin/fm-backend.sh`'s spawn-capable set (`FM_BACKEND_SPAWN`) still recognizes `herdr`, `zellij`, and `orca` at the backend layer, but none of the three has a supported setup guide and none is part of the current onboarding surface.
 `fm-spawn.sh` accepts `tmux` and `cmux` for ship and scout tasks; `backend=cmux` still refuses `--secondmate` until secondmate launch semantics are designed for it.
 
 ### Liveness classification
@@ -279,7 +279,7 @@ The compatibility helper `fm_backend_agent_alive` continues to collapse those de
 
 - A cmux spawn additionally version-gates against the installed `cmux` binary's version, requires `jq`, and requires the control socket to be reachable and accessible (see [`docs/cmux-backend.md`](cmux-backend.md) "Setup" for the one-time socket-access configuration this needs; Automation mode is the recommended socket control mode, with Password mode supported via `config/cmux-socket-password`), refusing loudly and non-retryably on a `cmuxOnly`/unauthenticated socket.
 
-A backend spawn refusal from a missing dependency, version gate, or unauthenticated socket is terminal for that selected backend; firstmate surfaces it as a blocker instead of silently retrying another backend.
+A backend spawn refusal from a missing dependency, version gate, or unauthenticated socket is terminal for that selected backend; quartermaster surfaces it as a blocker instead of silently retrying another backend.
 
 ### Task metadata
 
@@ -318,7 +318,7 @@ Test cleanup must use the guarded path in [`docs/cmux-backend.md`](cmux-backend.
 
 ## Away-mode supervisor backend (FM_SUPERVISOR_BACKEND / FM_SUPERVISOR_TARGET)
 
-The `/afk` sub-supervisor injects escalation digests into firstmate's own pane independently of where new task endpoints are spawned.
+The `/afk` sub-supervisor injects escalation digests into quartermaster's own pane independently of where new task endpoints are spawned.
 It currently supports only `tmux` supervisor panes.
 
 Set `FM_SUPERVISOR_BACKEND=tmux` and `FM_SUPERVISOR_TARGET=<target>` to override both axes explicitly.
@@ -400,10 +400,10 @@ The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pin
 Storing evidence in the repo publishes each run's test artifacts to the orphan `no-mistakes/evidence` branch and links them from the PR body, instead of keeping them on local disk under the no-mistakes home.
 
 That branch shares no history with code branches, so evidence never enters a pushed feature branch or the default branch; the worktree's `.no-mistakes/` stays local and CI rejects tracked entries under that path.
-The [`firstmate-coding-guidelines` skill](../.agents/skills/firstmate-coding-guidelines/SKILL.md#no-mistakes-test-configuration) owns why `commands.test` stays absent and targeted validation belongs to the evidence path.
+The [`coding-guidelines` skill](../.agents/skills/coding-guidelines/SKILL.md#no-mistakes-test-configuration) owns why `commands.test` stays absent and targeted validation belongs to the evidence path.
 
 `commands.test` executes code, so no-mistakes honors it only from the default-branch copy of `.no-mistakes.yaml`; a pushed branch cannot change what the gate runs.
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for the firstmate-specific local test policy and entry points.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for the quartermaster-specific local test policy and entry points.
 
 Portable shard evidence and coverage rules are in [fm-test-portable-shards.md](fm-test-portable-shards.md).
 
@@ -467,9 +467,9 @@ The concise single-line route contract is owned by the [`secondmate-provisioning
 
 ### Provision a local home
 
-Use `fm-home-seed.sh <id> - {<project>...|--no-projects}` to lease a fresh local firstmate worktree for the secondmate home.
+Use `fm-home-seed.sh <id> - {<project>...|--no-projects}` to lease a fresh local quartermaster worktree for the secondmate home.
 
-Use the deliberate `--no-projects` signal only for a firstmate-repo domain that needs no separate project clones.
+Use the deliberate `--no-projects` signal only for a quartermaster-repo domain that needs no separate project clones.
 It cannot be combined with a project list, and omitting both still fails loudly.
 
 A project-less seed requires no existing project clones or `data/projects.md` entries in the home, so it refuses a populated-home conversion without changing that home.
@@ -480,7 +480,7 @@ Teardown of a leased home fails closed if `treehouse return` cannot release the 
 
 ### Project modes and backlog handoff
 
-Secondmate routes cover `no-mistakes` and `direct-PR` projects; `local-only` projects remain main-firstmate work.
+Secondmate routes cover `no-mistakes` and `direct-PR` projects; `local-only` projects remain main-quartermaster work.
 For `no-mistakes` projects, seeding initializes only projects newly cloned into a secondmate home and refuses to mutate a preexisting clone that is not already initialized.
 
 After creating a secondmate, move existing main-backlog queued items that you have judged in-scope with `fm-backlog-handoff.sh <secondmate-id> <item-key>...`; it refuses In flight, Done, or non-secondmate homes, and its [script header](../bin/fm-backlog-handoff.sh) owns route-specific wake outcomes and retries.
@@ -496,7 +496,7 @@ The tracked root `.gitignore` ignores both markers, so validation can read them 
 This does not relax protection for any other untracked file.
 An existing linked-worktree home that predates this rule advances through its marker-only state during its next bootstrap or spawn local sync, after which Git ignores the marker normally.
 
-A local standalone-clone home cannot receive a primary-local commit through that no-fetch sync, so it receives the rule through `/updatefirstmate`'s origin refresh instead.
+A local standalone-clone home cannot receive a primary-local commit through that no-fetch sync, so it receives the rule through `/update`'s origin refresh instead.
 
 ## Harness support
 
@@ -519,7 +519,7 @@ Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles.
 ### Choose the worker harness
 
 `config/crew-harness` is a local, gitignored file containing one adapter name for crewmate and scout launches.
-When it is absent or contains `default`, crewmates mirror the firstmate's own harness.
+When it is absent or contains `default`, crewmates mirror the quartermaster's own harness.
 
 ### Choose the secondmate harness
 
@@ -562,13 +562,13 @@ Auto is Claude Code's classifier-reviewed permission mode, for a captain who ref
 Only the permission flag changes between the two modes.
 The environment prefix, inline settings, model, effort flags, and the task-channel `--add-dir` grant below stay the same in both.
 
-Every Claude launch, in both modes, also passes `--add-dir` for exactly this task's Firstmate channel directories, resolved to real paths: a secondmate gets the parent home's `state/<id>.inbox` it reads its steers from; a ship or scout worker gets this home's `state/operational-inbox` (its launch record), `state/<id>.inbox` (its steers), `data/<id>` (its brief and report), and the code root's `.agents/skills`.
+Every Claude launch, in both modes, also passes `--add-dir` for exactly this task's Quartermaster channel directories, resolved to real paths: a secondmate gets the parent home's `state/<id>.inbox` it reads its steers from; a ship or scout worker gets this home's `state/operational-inbox` (its launch record), `state/<id>.inbox` (its steers), `data/<id>` (its brief and report), and the code root's `.agents/skills`.
 The grant exists because Claude Code path-checks the Read/Glob/Grep file tools against cwd plus `--add-dir`, and since 2.1.257 the first outside read in `auto` mode parks the pane on a one-time interactive question, while a "Block" answer there writes `permissions.blockReadsOutsideWorkingDirectories` into user settings and then refuses the same reads under bypass too.
 It never covers the whole `state/` or anything wider.
 
 Any other value or an unreadable file refuses every spawn from that home, whichever harness it would launch.
 This happens before any endpoint, worktree, or task record exists.
-The diagnostic names the accepted values; Firstmate never falls back to a permission posture the captain did not choose.
+The diagnostic names the accepted values; Quartermaster never falls back to a permission posture the captain did not choose.
 
 ### When changes apply and inheritance
 
@@ -580,7 +580,7 @@ The [Claude adapter reference](../.agents/skills/harness-adapters/references/har
 ## Worker account pin (config/claude-account)
 
 A home that mixes accounts for one runner, such as a work login and a personal one, can pin the account its own Claude workers launch on.
-The pin is opt-in: with no file, every launch is unchanged, and Claude workers keep receiving firstmate's own `CLAUDE_CONFIG_DIR` when it is set.
+The pin is opt-in: with no file, every launch is unchanged, and Claude workers keep receiving quartermaster's own `CLAUDE_CONFIG_DIR` when it is set.
 
 The file is local and gitignored.
 
@@ -602,8 +602,8 @@ A raw Claude launch command refuses if its leading assignments set `CLAUDE_CONFI
 The assignment would override the pin.
 The refusal names the variable; remove that assignment from the raw command, or change or remove `config/claude-account`.
 
-Before any worker endpoint, local copy, or task record exists, and before a relaunch stops the running worker, Firstmate asks the runner itself whether the pinned account is signed in: `claude auth status`.
-The check runs with only `HOME`, `PATH`, `TMPDIR`, `USER`, `LOGNAME`, and the pinned root in its environment, so a credential variable in firstmate's own environment cannot answer for an empty root.
+Before any worker endpoint, local copy, or task record exists, and before a relaunch stops the running worker, Quartermaster asks the runner itself whether the pinned account is signed in: `claude auth status`.
+The check runs with only `HOME`, `PATH`, `TMPDIR`, `USER`, `LOGNAME`, and the pinned root in its environment, so a credential variable in quartermaster's own environment cannot answer for an empty root.
 
 A pinned Claude launch also unsets the environment credentials Claude ranks above a stored login, such as `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, and the Bedrock and Vertex switches ([authentication precedence](https://code.claude.com/docs/en/authentication#authentication-precedence)).
 
@@ -611,7 +611,7 @@ A home that authenticates Claude through environment credentials on purpose shou
 
 ### Failures, reporting, and inheritance
 
-A malformed file, a root that is not a readable directory, or a signed-out account refuses the launch and names the file to fix; Firstmate never falls back to the ambient account and never changes a global login or copies a credential.
+A malformed file, a root that is not a readable directory, or a signed-out account refuses the launch and names the file to fix; Quartermaster never falls back to the ambient account and never changes a global login or copies a credential.
 The spawn prints the pin as `account=` and records the same field in the task record, so the session-start digest shows which account each worker launched on.
 
 Pins are not inherited into secondmate homes: a local secondmate agent launches on the launching home's pin, while the secondmate's own workers read the secondmate home's files.
@@ -645,7 +645,7 @@ The text is static and never executed or expanded; secondmate charters never tak
 The optional local, gitignored `config/launch-env-allowlist` limits the ambient environment passed to newly launched workers, scouts, and secondmates, including relaunches.
 With no file, ambient inheritance remains unfiltered: selected harness markers are cleared, while the provider, long-lived terminal daemon, and shell initialization determine which other variables reach the worker.
 
-Do not assume every worker inherits the invoking Firstmate process's current environment.
+Do not assume every worker inherits the invoking Quartermaster process's current environment.
 The file is inherited into secondmate homes through the [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md).
 
 Changes apply to subsequent launches; existing processes keep their environment.
@@ -656,7 +656,7 @@ Create the file with one environment variable **name** per line, never credentia
 Blank lines and lines beginning with `#` are allowed.
 
 Invalid names, an unreadable or nonregular file, or a path inspection error (including an inaccessible configuration directory) stop the launch.
-An empty file enables filtering with only Firstmate's operational floor.
+An empty file enables filtering with only Quartermaster's operational floor.
 
 For example, a provider using `OPENAI_API_KEY` and Git using an SSH agent could use:
 
@@ -669,13 +669,13 @@ SSH_AUTH_SOCK
 
 ### Variables retained and where values come from
 
-Firstmate retains basic home, executable search, terminal, locale, temporary-directory, and backend routing variables, plus its explicit launch assignments, its ship and scout task marker, the compact-adviser kill switch described below, and enabled task trace.
+Quartermaster retains basic home, executable search, terminal, locale, temporary-directory, and backend routing variables, plus its explicit launch assignments, its ship and scout task marker, the compact-adviser kill switch described below, and enabled task trace.
 [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the exact retained names and parsing mechanics.
 
 Other ambient names must be listed explicitly, including custom credential-store locations, proxy settings, and certificate overrides when required by the selected tools.
 The command shell and worker may still create their own variables.
 
-Allowed values come from the destination pane at execution time; they are neither copied from the invoking Firstmate process nor written into the launch command.
+Allowed values come from the destination pane at execution time; they are neither copied from the invoking Quartermaster process nor written into the launch command.
 Listing a name does not provision it in a daemon's environment or transfer credentials to another machine.
 
 ### Authentication requirements
@@ -686,14 +686,14 @@ Choose the minimum additions for the authentication method actually in use:
 | --- | --- |
 | Provider login stored under the normal home directory | None for the environment contract; the same user still has access to that provider's stored login. |
 | Provider configured through environment variables | The exact credential and endpoint names required by that provider, for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; a multi-provider tool needs each provider it will actually use. |
-| Custom provider store | Its configured location variables, such as `XDG_CONFIG_HOME`; Firstmate's existing explicit Claude store assignment still applies. |
+| Custom provider store | Its configured location variables, such as `XDG_CONFIG_HOME`; Quartermaster's existing explicit Claude store assignment still applies. |
 | Git over SSH with an agent | `SSH_AUTH_SOCK`; add `GIT_SSH_COMMAND` only if the chosen transport requires that override. |
 | Git over SSH with a key file | No credential variable when normal SSH configuration selects the key; file permissions and any passphrase handling still apply. |
 | Git over HTTPS with a credential helper | Whatever the configured helper requires; a GitHub CLI helper using an environment token needs its selected `GH_TOKEN` or `GITHUB_TOKEN`. |
 
 ### Validation and security limits
 
-Verify the selected provider login and Git transport after opting in; Firstmate does not infer credentials from model names or install a secret manager.
+Verify the selected provider login and Git transport after opting in; Quartermaster does not infer credentials from model names or install a secret manager.
 Raw launch commands run under noninteractive POSIX `sh` with this option and must use compatible syntax.
 
 The filter runs at the worker command boundary, after the terminal daemon and pane shell have started; it does not scrub either of those processes.
@@ -703,11 +703,11 @@ Regression coverage executes emitted launch commands with synthetic nonsecret va
 
 ### Compact adviser setting
 
-Every crewmate, scout, and secondmate Firstmate launches starts with `COMPACT_ADVISER_DISABLE=1` in its environment, on a fresh spawn and on a relaunch alike, so an unattended session never activates the compact adviser.
+Every crewmate, scout, and secondmate Quartermaster launches starts with `COMPACT_ADVISER_DISABLE=1` in its environment, on a fresh spawn and on a relaunch alike, so an unattended session never activates the compact adviser.
 This guarantee also covers raw launch commands and launches filtered by `config/launch-env-allowlist`; it does not depend on the destination environment already containing the variable.
 
-Firstmate provides no configuration or flag to change this value.
-This applies only to agents Firstmate launches; the captain's own primary Firstmate session is never given the variable.
+Quartermaster provides no configuration or flag to change this value.
+This applies only to agents Quartermaster launches; the captain's own primary Quartermaster session is never given the variable.
 
 [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the delivery mechanics, with focused regression coverage in [`tests/fm-spawn-compact-adviser-disable.test.sh`](../tests/fm-spawn-compact-adviser-disable.test.sh) and [`tests/fm-spawn-compact-adviser-disable-remote.test.sh`](../tests/fm-spawn-compact-adviser-disable-remote.test.sh).
 
@@ -723,9 +723,9 @@ The flag is a home-wide attribution choice, so it is inherited into secondmate h
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
-`config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
-Firstmate chooses the best matching rule with judgment; shell scripts do not match the natural-language rules.
-Firstmate resolves the rule's profile object or array under `AGENTS.md` section 4 and `quota-array-dispatch`, then passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
+`config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that quartermaster reads before dispatching a crewmate or scout.
+Quartermaster chooses the best matching rule with judgment; shell scripts do not match the natural-language rules.
+Quartermaster resolves the rule's profile object or array under `AGENTS.md` section 4 and `quota-array-dispatch`, then passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
 
 **Spawn requirements**
 
@@ -749,7 +749,7 @@ This section is the single owner of the canonical schema and its per-field seman
       "use": [
         { "harness": "<adapter>", "model": "<optional model>", "effort": "<low|medium|high|xhigh|max|ultra, optional>", "provider": "<optional quota-axi provider>", "floor": { "scope": "<quota-axi scope>", "min_percent": 50 } }
       ],
-      "why": "<optional rationale that helps firstmate choose>"
+      "why": "<optional rationale that helps quartermaster choose>"
     }
   ],
   "default": [
@@ -770,7 +770,7 @@ This section is the single owner of the canonical schema and its per-field seman
 
 **Fields applied only by typed resolution**
 
-Rule `approval`, `min_confidence`, and `floor`, and profile `provider` and `floor` are optional declarations that only [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) applies in code; without that opt-in they are inert, and firstmate's own intake reads them as ordinary hints.
+Rule `approval`, `min_confidence`, and `floor`, and profile `provider` and `floor` are optional declarations that only [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) applies in code; without that opt-in they are inert, and quartermaster's own intake reads them as ordinary hints.
 The resolver supplies the fixed neutral Choice option `No listed rule applies to this task.` for work that matches no listed rule.
 
 - `approval` accepts only `"captain"` and means a task the rule matches is never dispatched from the tool's answer alone.
@@ -807,7 +807,7 @@ This single-provider table is separate from the frozen legacy mapping used by `f
 - `ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively.
 - An omitted model or effort means the selected harness uses its own default for that axis.
 - Every profile array is an implicit quota-aware choice resolved through `quota-array-dispatch`.
-- If no dispatch rule fits, firstmate resolves `default` through the same object-or-array path before falling back to `config/crew-harness`.
+- If no dispatch rule fits, quartermaster resolves `default` through the same object-or-array path before falling back to `config/crew-harness`.
 - Except for `ultra`, which refuses unsupported profiles under the native-effort contract above, an effort value the chosen harness does not accept is recorded as `effort=` in task meta for traceability but omitted from the launch flags.
 - Bootstrap reports unsupported harness/model/effort combinations as a `CREW_DISPATCH` diagnostic when they are visible in the file.
 
@@ -828,10 +828,10 @@ Secondmate homes inherit this file from the primary, so a secondmate's own crewm
 
 ## Typed dispatch resolution (.env TYPESAFE_API_KEY)
 
-`bin/fm-dispatch-resolve.sh` resolves one concrete crewmate or scout profile from a written brief with typesafe.ai's System One model (Jev), so the rule match that firstmate otherwise reasons out in its own context becomes one short tool turn.
+`bin/fm-dispatch-resolve.sh` resolves one concrete crewmate or scout profile from a written brief with typesafe.ai's System One model (Jev), so the rule match that quartermaster otherwise reasons out in its own context becomes one short tool turn.
 It is off unless `TYPESAFE_API_KEY` is non-empty in the calling environment or the home's gitignored `.env` holds a `TYPESAFE_API_KEY=` line; the environment wins, matching the mail-plane contract.
 
-Off means one `dispatch-resolve: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate dispatches exactly as it does without the tool.
+Off means one `dispatch-resolve: off` line on stderr, nothing on stdout, exit 0, and no network call, so quartermaster dispatches exactly as it does without the tool.
 This section is the single owner of the tool's operator contract; the script header owns its exact flags and output lines, and "Crew dispatch profiles" above owns the declared rule and profile fields it applies.
 
 Rules come only from the effective home's `config/crew-dispatch.json`; `FM_CONFIG_OVERRIDE` selects the config directory for tests and specialized setup like the other scripts.
@@ -840,9 +840,9 @@ Rules come only from the effective home's `config/crew-dispatch.json`; `FM_CONFI
 bin/fm-dispatch-resolve.sh data/<id>/brief.md --project <name>        # TOON block on stdout
 ```
 
-**When firstmate invokes the resolver**
+**When quartermaster invokes the resolver**
 
-Firstmate invokes the resolve path directly after writing the brief, without a preflight; the absent-key off line is handled exactly like every other non-clear outcome.
+Quartermaster invokes the resolve path directly after writing the brief, without a preflight; the absent-key off line is handled exactly like every other non-clear outcome.
 
 **What the model receives**
 
@@ -869,13 +869,13 @@ Example Client Ltd
 ```
 
 Before the request is sent, every string in it is checked: the project name, the task text, each rule's `when`, and the fixed question text.
-A match stops the request: the resolver behaves exactly as when it is off, printing one `dispatch-resolve: off (...; nothing sent)` line on stderr and nothing on stdout, making no network or quota call, and exiting 0, so firstmate dispatches through its existing intake.
+A match stops the request: the resolver behaves exactly as when it is off, printing one `dispatch-resolve: off (...; nothing sent)` line on stderr and nothing on stdout, making no network or quota call, and exiting 0, so quartermaster dispatches through its existing intake.
 A list that is present but not a readable regular file also stops the request the same way rather than sending unchecked text.
 That one diagnostic names the list line number at most and never prints the listed value or the matching text.
 
 **Missing or invalid rules**
 
-An absent rules file, a default-only file, or `rules: []` returns the non-clear reason `no rules to match` without a model or quota request, leaving firstmate's existing routing in control; an existing but unreadable or malformed rules file, including a broken symlink, remains an actionable exit 2 configuration error.
+An absent rules file, a default-only file, or `rules: []` returns the non-clear reason `no rules to match` without a model or quota request, leaving quartermaster's existing routing in control; an existing but unreadable or malformed rules file, including a broken symlink, remains an actionable exit 2 configuration error.
 
 **Checks performed after the answer**
 
@@ -922,14 +922,14 @@ Every result above exits 0.
 
 - Response probabilities must contain exactly every offered choice, use numeric values from 0 through 1, and sum to approximately 1 within 0.01.
 - Only a usage or configuration error exits 2: an unreadable brief, an existing but unreadable or malformed canonical rules file, or missing `jq`, each reported and never selected around.
-- Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate uses today's routing.
+- Missing `curl` is a normal structured `error` outcome with exit 0 so quartermaster uses today's routing.
 
-**Firstmate retains the dispatch decision**
+**Quartermaster retains the dispatch decision**
 
-The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
+The tool never replaces quartermaster's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what quartermaster does with each outcome.
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 
-Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
+Quartermaster passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
 **Key handling and fixed settings**
 
@@ -993,7 +993,7 @@ A cmux home is therefore never told `tmux` is missing, and the `treehouse` durab
 - An absent or incompatible `tasks-axi` reports `MISSING: tasks-axi (install: npm install -g tasks-axi)`; when `config/backlog-backend` is not `manual`, a home with a configured non-markdown adapter or a markdown backlog refuses lifecycle mutation until compatible `tasks-axi` is on `PATH`, while a manual-backend home keeps its backlog hand-edited.
 - An absent or incompatible `gh-axi` reports `MISSING: gh-axi (install: npm install -g gh-axi && gh-axi setup hooks)`.
 - An absent or board-incompatible `lavish-axi` reports `PRESENTATION_UNAVAILABLE` with the 0.1.77 compatibility floor, install command, and explicit text fallback; compatible versions below 0.1.80 retain legacy board replies and report an upgrade recommendation for synchronous acceptance, while [`bootstrap-diagnostics`](../.agents/skills/bootstrap-diagnostics/SKILL.md) owns diagnostic handling.
-- An absent or too-old `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; firstmate cannot resolve a profile array without a compatible binary.
+- An absent or too-old `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; quartermaster cannot resolve a profile array without a compatible binary.
 
 **Checkout diagnostics**
 
@@ -1162,7 +1162,7 @@ A fail-closed poll that already queued a wake, and a timeout, always print so th
 
 ## Trusted external process-event adapters (config/extensions.d)
 
-A home can explicitly enable a trusted external `process-event-adapter/1` package without adding package code to Firstmate.
+A home can explicitly enable a trusted external `process-event-adapter/1` package without adding package code to Quartermaster.
 This is one narrow extension type, not a general plugin or hook system.
 
 [`extension-bindings.md`](extension-bindings.md) owns the manifest, binding, trust, handshake, invocation-envelope, capability, version-compatibility, and authority-boundary contracts.
@@ -1198,11 +1198,11 @@ The shipped `file-signal` package is a complete neutral example.
 Copy it to a persistent directory outside every Git project or task copy, then bind and verify it:
 
 ```sh
-mkdir -p "$HOME/.local/share/firstmate-packages"
+mkdir -p "$HOME/.local/share/quartermaster-packages"
 cp -R docs/examples/process-event-extension \
-  "$HOME/.local/share/firstmate-packages/file-signal"
+  "$HOME/.local/share/quartermaster-packages/file-signal"
 bin/fm-extension.sh bind \
-  "$HOME/.local/share/firstmate-packages/file-signal" \
+  "$HOME/.local/share/quartermaster-packages/file-signal" \
   --adapter file-signal \
   --trust-same-user-code \
   --consent artifact-references
@@ -1265,7 +1265,7 @@ An already-armed Lavish source keeps its registered listener command until it is
 
 **Arm and confirm a listener**
 
-A live task that hosts a Lavish board owns its listener, so firstmate must never arm that board.
+A live task that hosts a Lavish board owns its listener, so quartermaster must never arm that board.
 After opening the artifact as required above, the worker arms it with `bin/fm-procevent-lavish.sh arm <artifact.html> --for <task-id>` and never runs `lavish-axi poll` itself.
 
 `arm` prints `armed` only after the process-event owner confirms this registration generation's listener is running, and otherwise returns nonzero without that line.
@@ -1296,7 +1296,7 @@ The Lavish version floors and feature probe are owned by `bin/fm-bootstrap.sh`.
 
 **Deliver feedback to the worker**
 
-- The captured result is stored with immutable task-owner routing evidence and delivered directly to that task's steering inbox, without a firstmate `check` wake for the captain's words.
+- The captured result is stored with immutable task-owner routing evidence and delivered directly to that task's steering inbox, without a quartermaster `check` wake for the captain's words.
 - The doorbell rings only when that idempotent write creates a fresh inbox record; filing the note into `handled/` is the worker's own acknowledgement of the delivery, so a later reconcile never moves an already-filed note back into the active inbox or re-rings its owner, and re-delivery of a note still open in the inbox is left to the steering inbox's own re-ring ladder.
 - A task-owned source with an unhandled capture is not relaunched, so delivery failure cannot consume a round and start another poll.
 - That record is the only ownership evidence there is, so while any captured round of it is unacknowledged every retirement path refuses - the runner's own terminal retirement and an explicit `retire` alike - and the refusal names the acknowledgement that releases it.
@@ -1312,22 +1312,22 @@ The Lavish version floors and feature probe are owned by `bin/fm-bootstrap.sh`.
 **Ownership and recovery**
 
 - A second armer is refused with the current owner named, and the source list derives `listening`, `round-open`, or `dead` from the claim and handled captures without a second ownership record.
-- If the hosting worker cannot be recovered, relaunch a worker to re-host first; guarded firstmate adoption is an explicit last resort only after the old claim is proved dead.
+- If the hosting worker cannot be recovered, relaunch a worker to re-host first; guarded quartermaster adoption is an explicit last resort only after the old claim is proved dead.
 - The cross-home gap between worker rounds remains an accepted residual until lavish-axi's exclusive listener lands.
 - The interim crew instruction emitted by `bin/fm-brief.sh` points workers at this arm-and-acknowledge contract.
 
 **Register deterministic condition and action watches**
 
 The `when` adapter (`bin/fm-procevent-when.sh`) registers a deterministic condition and action once.
-Its blocking child polls the condition without waking firstmate.
+Its blocking child polls the condition without waking quartermaster.
 A stable true fires the action at most once.
 One terminal outcome is then durably captured and published as a wake, which remains eligible for re-announcement until handled.
 
 The (condition, action) spec is stored privately under `state/when/` and hash-bound by a trust record the same way `bin/fm-check-register.sh` binds a custom check, while the spec separately binds the resolved action executable's bytes; a mutated or unregistered spec or a changed action executable is refused before the action runs, and that binding is reloaded from disk immediately before each fire rather than trusted from when polling started.
 A repo update that fast-forwards an in-repo action's bytes in place would otherwise desync every already-armed watch's trust binding with no tampering involved; `bin/fm-procevent-when.sh rebind-all` re-hashes and republishes the binding for every registered watch whose action lives under `FM_ROOT`, including one already polling, so it keeps firing across such an update instead of being refused on its next fire.
 
-Every failure path - a mutated spec or action executable, a condition error past its budget, an expired deadline, a failed action, or an earlier fire whose outcome was never captured - produces a terminal captured outcome that wakes firstmate rather than a silent retry, and a durable single-fire marker claimed before the action makes restarts and re-polls unable to fire it twice.
-The adapter automates only the exact deterministic subset: anything needing judgment, and anything destructive, irreversible, or security-sensitive, keeps the ordinary check-fires-then-firstmate-decides flow, and the adapter's header and `--help` own its commands, flags, and outcome document.
+Every failure path - a mutated spec or action executable, a condition error past its budget, an expired deadline, a failed action, or an earlier fire whose outcome was never captured - produces a terminal captured outcome that wakes quartermaster rather than a silent retry, and a durable single-fire marker claimed before the action makes restarts and re-polls unable to fire it twice.
+The adapter automates only the exact deterministic subset: anything needing judgment, and anything destructive, irreversible, or security-sensitive, keeps the ordinary check-fires-then-quartermaster-decides flow, and the adapter's header and `--help` own its commands, flags, and outcome document.
 
 **Capture and publish results**
 
@@ -1337,7 +1337,7 @@ This section is the single owner of the runner's operating contract.
 - Registration writes one private record under `state/procevent/`, and a completed result plus its immutable adapter identity are captured under `state/procevent-inbox/` before any announcement or event can reference it.
 - By default, results are published as ordinary `check` wakes carrying the source id and committed result sequence through the existing durable wake queue, so the runner adds no second notification control plane.
 - The self-announcing adapter exception and its fail-safe ordering are defined below.
-- The watcher delivers a queued result on its ordinary cycle by reporting it as an actionable `check` wake, so a default or fallback publication reaches firstmate through the same rewake path every other wake uses and never waits for a manual drain.
+- The watcher delivers a queued result on its ordinary cycle by reporting it as an actionable `check` wake, so a default or fallback publication reaches quartermaster through the same rewake path every other wake uses and never waits for a manual drain.
 - A queued `check` delivery is reported at most once per captured source and sequence while any records for that key remain queued.
 - A durable handled acknowledgement stops future source re-announcement, while a record already queued remains under the durable queue's authority until the ordinary drain's sequence-bound post-handling acknowledgement consumes it.
 - By default, a runner releases its claim after one poll; an adapter that opts into `relisten` keeps that runner and claim across empty waits and captured results, adopting a replacement registration only when the registered command is unchanged and the claim still belongs to it.
@@ -1420,7 +1420,7 @@ Some built-in sources carry the captain's answer to a captain-held task, and wha
 **Reconcile selections and handling boundaries**
 
 - The reserved Reconcile selection uses the parallel optional `reconciles` adapter command and binding-verified `reconcile-requests` intake rather than entering keyed answers; [`captain-hold-lifecycle.md`](captain-hold-lifecycle.md#reconcile-re-check-reality-never-a-blind-close) owns those semantics.
-- Feeding is independent of handling: it never acknowledges a result and never suppresses a wake, because recording the answer or request is transcription while acting on it is firstmate's judgement.
+- Feeding is independent of handling: it never acknowledges a result and never suppresses a wake, because recording the answer or request is transcription while acting on it is quartermaster's judgement.
 - An unbound built-in source, a built-in adapter without the corresponding command, and a failure on either side all leave the capture untouched and still announced.
 - External binding responses never enter either authority-bearing intake.
 
@@ -1506,7 +1506,7 @@ Making any of them a precondition is what leaves a provably dead runner owning i
 
 **Recover from unsupported manual deletion**
 
-Raw manual deletion of a Firstmate home is unsupported because it can orphan a blocking child.
+Raw manual deletion of a Quartermaster home is unsupported because it can orphan a blocking child.
 To recover, restore that home's tracked `bin/fm-procevent.sh`, run `FM_HOME=<home> <home>/bin/fm-procevent.sh sweep-home`, then rerun the supported teardown.
 
 The owning-home lease below bounds how long such an orphan can run, but it is a backstop, not a substitute for the supported path.
@@ -1638,7 +1638,7 @@ Runtime tuning via environment variables (defaults shown):
 
 ```sh
 FM_HOME=                 # optional operational home for most scripts, unset means this repo root; fm-send requires it explicitly
-FM_ROOT_OVERRIDE=        # override firstmate repo root, tangle-guard target, and cmux home-title hash; also legacy whole-root override when FM_HOME is unset
+FM_ROOT_OVERRIDE=        # override quartermaster repo root, tangle-guard target, and cmux home-title hash; also legacy whole-root override when FM_HOME is unset
 FM_STATE_OVERRIDE=       # alternate state dir, mainly for tests
 FM_DATA_OVERRIDE=        # alternate data dir, mainly for tests
 FM_PROJECTS_OVERRIDE=    # alternate projects dir, mainly for tests
@@ -1678,7 +1678,7 @@ FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may 
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
 FM_MAIL_CHECK_BUDGET=15   # seconds allowed for one standing mail poll; valid 5..25, cut to fit FM_CHECK_TIMEOUT
-FM_MAIL_POLL_MAX_WAKES=20   # per-poll wake cap for a mail poll; valid 1..200, keeps a flood from flooding firstmate
+FM_MAIL_POLL_MAX_WAKES=20   # per-poll wake cap for a mail poll; valid 1..200, keeps a flood from flooding quartermaster
 FM_MAIL_TIMEOUT=20   # mail-plane IMAP/SMTP socket timeout in seconds; invalid or non-positive values become 20
 FM_TOOL_UPDATE_INTERVAL=900   # seconds between watched-tool probe sweeps; 0 probes on every run, other values must be 60..86400
 FM_TOOL_UPDATE_PROBE_SECS=5   # 1..30 seconds allowed for one version or git probe

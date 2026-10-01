@@ -1,7 +1,7 @@
 ---
 name: stuck-crewmate-recovery
 description: >-
-  Agent-only playbook for stuck or missing ordinary Firstmate direct reports.
+  Agent-only playbook for stuck or missing ordinary Quartermaster direct reports.
   Use when the session-start digest reports an ordinary direct report's endpoint dead or its metadata has no window, or after a stale wake, looping pane, repeated confusion, an answered-by-brief question, an unresponsive crewmate, or a failed steer.
   Also use on the inverse case: a live crewmate reporting the no-mistakes pipeline dead, unreachable, or timed out.
   Reconciles recorded work before escalating from targeted inspection through safe relaunch or failure.
@@ -13,7 +13,7 @@ metadata:
 # stuck-crewmate-recovery
 
 Use this playbook when the session-start digest reports an ordinary direct report's endpoint dead or its metadata has no window, or when a direct report is stale, looping, repeatedly confused, asking a question its brief already answers, unresponsive, or when a steer failed to land.
-A stale or dead-endpoint report for a worker whose pull request has already landed is not a recovery case: the work is finished, so close the task through ordinary teardown (`AGENTS.md` section 7 for firstmate, the landed-work rule in `bin/fm-branch-prompt.sh` for the supervision branch) instead of this playbook, never with `--force`.
+A stale or dead-endpoint report for a worker whose pull request has already landed is not a recovery case: the work is finished, so close the task through ordinary teardown (`AGENTS.md` section 7 for quartermaster, the landed-work rule in `bin/fm-branch-prompt.sh` for the supervision branch) instead of this playbook, never with `--force`.
 
 Follow the crew-hosted Lavish board contract in [`docs/configuration.md`](../../../docs/configuration.md#crew-hosted-lavish-review-boards) when recovering a worker that hosts a board.
 
@@ -66,10 +66,10 @@ Only positive socket refusal or absence is a daemon-down finding; escalate that 
 
 Escalate in order:
 
-1. Peek the pane, and check the task's steering inbox (`state/<id>.inbox/`) for unhandled `*.msg` records - a stale wake naming an unread firstmate instruction means the worker never acknowledged a durable steer, and the record itself shows exactly what was intended.
-2. If the crewmate is waiting on a question its brief already answers, answer in one line via `FM_HOME=<this-firstmate-home> bin/fm-send.sh` from an active firstmate session unless `FM_HOME` is already set to the active firstmate home.
-3. If the crewmate is confused or looping, interrupt with `FM_HOME=<this-firstmate-home> bin/fm-control.sh <task-id> interrupt`, then redirect with one corrective line through `fm-send`.
-4. If the crewmate is genuinely wedged after redirection, relaunch it with `FM_HOME=<this-firstmate-home> bin/fm-control.sh <task-id> relaunch --note '<progress so far>'`, which stops the agent, carries the brief plus that note into a replacement in the same local copy, and restores the prior record if the replacement cannot start.
+1. Peek the pane, and check the task's steering inbox (`state/<id>.inbox/`) for unhandled `*.msg` records - a stale wake naming an unread quartermaster instruction means the worker never acknowledged a durable steer, and the record itself shows exactly what was intended.
+2. If the crewmate is waiting on a question its brief already answers, answer in one line via `FM_HOME=<this-quartermaster-home> bin/fm-send.sh` from an active quartermaster session unless `FM_HOME` is already set to the active quartermaster home.
+3. If the crewmate is confused or looping, interrupt with `FM_HOME=<this-quartermaster-home> bin/fm-control.sh <task-id> interrupt`, then redirect with one corrective line through `fm-send`.
+4. If the crewmate is genuinely wedged after redirection, relaunch it with `FM_HOME=<this-quartermaster-home> bin/fm-control.sh <task-id> relaunch --note '<progress so far>'`, which stops the agent, carries the brief plus that note into a replacement in the same local copy, and restores the prior record if the replacement cannot start.
    Pass `--harness`, `--model`, or `--effort` on that same command when the worker should come back on a different runtime.
    Genuine wedging means looping, unresponsive, repeating the same obstacle, or truly dead.
    A low context reading is not wedging; modern harnesses auto-compact and keep going.

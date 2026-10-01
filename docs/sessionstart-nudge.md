@@ -21,7 +21,7 @@ One term recurs throughout:
 
 ## Session-open tiers
 
-Firstmate ships two session-open tiers.
+Quartermaster ships two session-open tiers.
 The tier is a property of the harness surface, not of the home.
 
 | Tier | What the adapter does | Used by |
@@ -175,7 +175,7 @@ When the root otherwise qualifies as primary, the run wrapper creates the state 
 If that creation fails, the run wrapper prints one stderr line naming the state directory and the reason, then stands down as it would for any ineligible root.
 The nudge wrapper and every other hook still stand down while the state directory is missing.
 
-The Guard Predicates section of [`turnend-guard.md`](turnend-guard.md#guard-predicates) owns marker validation, plain-checkout detection, and required Firstmate-shaped paths.
+The Guard Predicates section of [`turnend-guard.md`](turnend-guard.md#guard-predicates) owns marker validation, plain-checkout detection, and required Quartermaster-shaped paths.
 
 ### Nudge payload
 

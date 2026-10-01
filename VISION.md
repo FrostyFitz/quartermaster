@@ -1,6 +1,6 @@
 # Vision
 
-`firstmate` exists so that one person can run a crew of coding agents with the leverage of a team and the accountability of a single pair of hands.
+`quartermaster` exists so that one person can run a crew of coding agents with the leverage of a team and the accountability of a single pair of hands.
 It aims to create an experience: a sense of peacefulness, confidence that everything is under control, and an ease of mind that nothing will fall through the cracks the moment the captain looks away.
 That experience is the experience of being a good captain who sails with a well-managed crew, with a first mate that carries out the captain's direction.
 It serves the captain: an individual operator whose ambitions outrun their attention, and it turns intent stated once into delegated, supervised, evidence-backed work across every project they care about.
@@ -59,7 +59,7 @@ The first mate is not another harness and not another orchestrator app.
 The experience it creates is a new way of working, orthogonal to which agent harness or session manager the captain already uses.
 It is an agent distro, not an app: instructions, skills, scripts, and state conventions that a verified harness can inhabit, running on a session manager such as tmux.
 The first mate can read, understand, and evolve every part of itself: plain instructions, scripts, and text records keep the whole system introspectable, hot-modifiable, and self-evolving by the very agent that runs it.
-When something is not working well, the captain can ask the first mate and it figures it out; captains using their own firstmate to improve the shared surface is how the fleet evolves in the open.
+When something is not working well, the captain can ask the first mate and it figures it out; captains using their own quartermaster to improve the shared surface is how the fleet evolves in the open.
 Harness adapters earn trust through verification.
 Contracts bind to semantics a vendor actually exposes.
 Where a vendor exposes none, the fleet may read the rendered surface, but only as a named, quarantined, version-pinned adapter that carries its own verification and is expected to break on that vendor's next release.
@@ -68,11 +68,11 @@ Quota, model, and effort choices stay inspectable and captain-owned; the first m
 
 ## Scope
 
-firstmate is the command layer, not the workshop: validation belongs to no-mistakes, CI belongs to the forge, and merge policy belongs to the configured authority.
+quartermaster is the command layer, not the workshop: validation belongs to no-mistakes, CI belongs to the forge, and merge policy belongs to the configured authority.
 It is not a general agent framework, not a hosted service, and not a prepackaged product; it is a template one person clones, owns, deeply customizes, and operates under their own identity.
 Setup stays that simple by design: clone the repo, run your agent in it, and that is it.
 The shared surface is generic and captain-agnostic; everything personal - preferences, projects, records, credentials - stays private to the home that owns it.
-This repository ships through its own discipline: firstmate work is validated like any other project's, and field incidents become regression coverage.
+This repository ships through its own discipline: quartermaster work is validated like any other project's, and field incidents become regression coverage.
 
 A change aligns when it deepens the captain's peace of mind, confidence, and ease of looking away, gives more shipped outcomes per unit of attention and tokens, makes delegation safer or more legible, strengthens a refusal path, keeps the system introspectable, hot-modifiable, and self-evolving, or lets the fleet survive another failure mode.
 A change should be resisted when it trades that experience for more noise or more context-switching, lets the fleet act beyond adjudicable intent, assumes consent instead of asking for it, adds a layer between intent and action, mixes scripted mechanics with agent judgment, spends tokens where a script would do, serves anyone but the captain, couples the distro to one vendor or session manager, buries an outcome in mechanics, or grows the command layer into the workshop it commands.

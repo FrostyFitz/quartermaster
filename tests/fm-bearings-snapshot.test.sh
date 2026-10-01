@@ -1666,14 +1666,14 @@ test_vault_queue_classifies_captain_and_next() {
   mkdir -p "$vault"
   {
     # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
-    printf '%s\n' '- [ ] **Fitz: pick a database** — `trovewright`'
+    printf '%s\n' '- [ ] **Alex: pick a database** — `acme-app`'
     # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
-    printf '%s\n' '- [ ] fitz: lowercase marker also matches — `meta`'
+    printf '%s\n' '- [ ] alex: lowercase marker also matches — `meta`'
     # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
     printf '%s\n' '- [ ] Regular next-work item with no marker — `personal`'
     printf '%s\n' '- [x] A closed item that must never appear'
   } > "$vault/Open Work.md"
-  write_fixture_agent_config "$home/config" "$vault" "Fitz"
+  write_fixture_agent_config "$home/config" "$vault" "Alex"
   fakebin=$(make_fakebin "$home")
   out=$(run "$home" "$fakebin" --json)
   printf '%s' "$out" | jq -e '
@@ -1681,7 +1681,7 @@ test_vault_queue_classifies_captain_and_next() {
       and (.vault_queue.captain | length) == 2
       and (.vault_queue.next | length) == 1
       and (.vault_queue.captain[0].text | test("pick a database"))
-      and (.vault_queue.captain[0].project == "trovewright")
+      and (.vault_queue.captain[0].project == "acme-app")
       and (.vault_queue.next[0].text | test("Regular next-work item"))
       and (.vault_queue.next[0].project == "personal")
   ' >/dev/null || fail "vault_queue did not classify captain vs next correctly: $out"
@@ -1699,7 +1699,7 @@ test_vault_queue_bounds_and_discloses_omitted() {
   for i in 1 2 3 4 5; do
     printf -- '- [ ] next item %s\n' "$i" >> "$vault/Open Work.md"
   done
-  write_fixture_agent_config "$home/config" "$vault" "Fitz"
+  write_fixture_agent_config "$home/config" "$vault" "Alex"
   fakebin=$(make_fakebin "$home")
   out=$(FM_BEARINGS_VAULT_QUEUE=2 run "$home" "$fakebin" --json)
   printf '%s' "$out" | jq -e '
@@ -1716,7 +1716,7 @@ test_vault_queue_unreadable_with_missing_queue_file() {
   home=$(make_home vault-unreadable)
   vault="$home/vault"
   mkdir -p "$vault"
-  write_fixture_agent_config "$home/config" "$vault" "Fitz" "Missing.md"
+  write_fixture_agent_config "$home/config" "$vault" "Alex" "Missing.md"
   fakebin=$(make_fakebin "$home")
   out=$(run "$home" "$fakebin" --json)
   printf '%s' "$out" | jq -e --arg path "$vault/Missing.md" '

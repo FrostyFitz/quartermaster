@@ -22,15 +22,15 @@ test_parses_full_frontmatter() {
   mkdir -p "$config"
   cat > "$config/agent.md" <<'EOF'
 ---
-name: "Porygon"
+name: "Nova"
 address: "sir or boss"
 tone: salty-butler
-user_name: "Fitz"
+user_name: "Alex"
 toggles:
   never_suggest_stopping: true
   one_question_then_stop: true
 vault:
-  root: "/home/fitz/Porygon Vault"
+  root: "/home/alex/Nova Vault"
   entry: "VAULT-INDEX.md"
   queue: "Active Priorities.md"
   daily_dir: "01 - Daily Notes"
@@ -39,10 +39,10 @@ vault:
 # Persona
 EOF
   fm_agent_config_read "$config" || fail "read failed for a complete config"
-  assert_field "$FM_AGENT_CONFIG_NAME" "Porygon" "name"
-  assert_field "$FM_AGENT_CONFIG_USER_NAME" "Fitz" "user_name"
+  assert_field "$FM_AGENT_CONFIG_NAME" "Nova" "name"
+  assert_field "$FM_AGENT_CONFIG_USER_NAME" "Alex" "user_name"
   assert_field "$FM_AGENT_CONFIG_ADDRESS" "sir or boss" "address"
-  assert_field "$FM_AGENT_CONFIG_VAULT_ROOT" "/home/fitz/Porygon Vault" "vault_root"
+  assert_field "$FM_AGENT_CONFIG_VAULT_ROOT" "/home/alex/Nova Vault" "vault_root"
   assert_field "$FM_AGENT_CONFIG_VAULT_ENTRY" "VAULT-INDEX.md" "vault_entry"
   assert_field "$FM_AGENT_CONFIG_VAULT_QUEUE" "Active Priorities.md" "vault_queue"
   pass "fm_agent_config_read parses a complete frontmatter, including a quoted vault root with spaces"
@@ -86,14 +86,14 @@ test_single_quoted_and_unquoted_scalars() {
   mkdir -p "$config"
   cat > "$config/agent.md" <<'EOF'
 ---
-name: 'Porygon'
+name: 'Nova'
 address: sir or boss
 vault:
   root: /home/x/vault
 ---
 EOF
   fm_agent_config_read "$config" || fail "read failed"
-  assert_field "$FM_AGENT_CONFIG_NAME" "Porygon" "single-quoted name"
+  assert_field "$FM_AGENT_CONFIG_NAME" "Nova" "single-quoted name"
   assert_field "$FM_AGENT_CONFIG_ADDRESS" "sir or boss" "unquoted address with spaces"
   assert_field "$FM_AGENT_CONFIG_VAULT_ROOT" "/home/x/vault" "unquoted vault root"
   pass "fm_agent_config_read accepts single-quoted and bare unquoted scalars"
@@ -105,14 +105,14 @@ test_quoted_scalar_with_trailing_comment() {
   mkdir -p "$config"
   cat > "$config/agent.md" <<'EOF'
 ---
-name: "Porygon" # the persona name
+name: "Nova" # the persona name
 vault:
-  root: "/home/fitz/Porygon Vault" # primary vault
+  root: "/home/alex/Nova Vault" # primary vault
 ---
 EOF
   fm_agent_config_read "$config" || fail "read failed"
-  assert_field "$FM_AGENT_CONFIG_NAME" "Porygon" "quoted name with a trailing comment"
-  assert_field "$FM_AGENT_CONFIG_VAULT_ROOT" "/home/fitz/Porygon Vault" "quoted vault root with a trailing comment"
+  assert_field "$FM_AGENT_CONFIG_NAME" "Nova" "quoted name with a trailing comment"
+  assert_field "$FM_AGENT_CONFIG_VAULT_ROOT" "/home/alex/Nova Vault" "quoted vault root with a trailing comment"
   pass "fm_agent_config_read strips surrounding quotes from a quoted scalar that carries a trailing inline comment"
 }
 
