@@ -15,7 +15,7 @@
 # `trustedWorkspaces` array of ${HOME}/.gemini/antigravity-cli/settings.json,
 # and agy honours an entry written there ahead of launch: verified live under a
 # throwaway HOME, a pre-registered folder launched straight into its turn while
-# an unregistered sibling parked on the dialog (docs/verification/agy.md). agy
+# an unregistered sibling parked on the dialog. agy
 # compares the pane's LOGICAL working directory, not its resolved path (a
 # symlinked cwd with only the real path registered still parked), so both the
 # logical path and its resolved form are recorded when they differ.

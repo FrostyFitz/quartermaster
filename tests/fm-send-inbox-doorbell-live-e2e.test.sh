@@ -7,21 +7,23 @@
 # act on its records in numeric order, then mv each into handled/. A stub can
 # only confirm the assumption already
 # written into the stub, so per .agents/skills/firstmate-coding-guidelines
-# this is proven against every INSTALLED verified harness: each is launched
-# idle in an isolated tmux server, steered through the REAL fm-send (durable
-# record + doorbell), and must both ACT on the instruction (create a named
-# file) and ACKNOWLEDGE it (the mv into handled/), failing loudly with the
-# harness name and version.
+# this is proven against the installed Claude Code: it is launched idle in an
+# isolated tmux server, steered through the REAL fm-send (durable record +
+# doorbell), and must both ACT on the instruction (create a named file) and
+# ACKNOWLEDGE it (the mv into handled/), failing loudly with the harness name
+# and version.
+#
+# quartermaster ships Claude Code as the sole verified harness, so this guard
+# only ever launches a real claude process; a live e2e test never launches a
+# real non-Claude harness binary.
 #
 # Run explicitly with FM_SEND_INBOX_LIVE_E2E=1. This test spends a small
-# number of real model tokens per installed harness (one short turn each) -
-# authorized by the harness-dependent-checks rule. An absent harness is
-# reported explicitly and skipped; a run that verified nothing fails rather
-# than passing vacuously. Restrict with
-# FM_SEND_INBOX_LIVE_HARNESSES="claude codex ..." when needed, and tune the
-# per-harness wait with FM_SEND_INBOX_LIVE_TIMEOUT (seconds, default 240).
-# Record the dated per-harness result in
-# docs/verification/runtime-backends.md ("Steering-inbox doorbell").
+# number of real model tokens (one short turn) - authorized by the
+# harness-dependent-checks rule. An absent harness is reported explicitly and
+# skipped; a run that verified nothing fails rather than passing vacuously.
+# Tune the wait with FM_SEND_INBOX_LIVE_TIMEOUT (seconds, default 240).
+# Record the dated result in docs/verification/runtime-backends.md
+# ("Steering-inbox doorbell").
 #
 # Folder trust: harnesses launch with the repo root as cwd, which the
 # operator's machine has normally already trusted; a trust dialog is a real
@@ -82,12 +84,6 @@ harness_version() {  # <binary>
 launch_cmd() {  # <name>
   case "$1" in
     claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '\''{"feedbackDrafts":"off"}'\''' ;;
-    codex) printf '%s' 'codex --dangerously-bypass-approvals-and-sandbox' ;;
-    opencode) printf '%s' "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode" ;;
-    pi|pi-signed) printf '%s' "$1" ;;
-    grok) printf '%s' 'grok --always-approve' ;;
-    kimi) printf '%s' 'kimi --auto' ;;
-    muse) printf '%s' 'MUSE_EXPERIMENTAL_FOREIGN_PERSONAL_CONTEXT_KILL=on muse --yolo' ;;
     *) return 1 ;;
   esac
 }
@@ -185,7 +181,7 @@ check_harness_doorbell() {  # <name>
   tmux -L "$SOCKET" kill-window -t "$SESSION:$win" 2>/dev/null || true
 }
 
-HARNESSES=${FM_SEND_INBOX_LIVE_HARNESSES:-'claude codex opencode pi grok kimi muse'}
+HARNESSES=${FM_SEND_INBOX_LIVE_HARNESSES:-'claude'}
 for h in $HARNESSES; do
   if command -v "$h" >/dev/null 2>&1; then
     check_harness_doorbell "$h"

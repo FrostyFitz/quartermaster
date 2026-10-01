@@ -190,14 +190,13 @@ tests/fm-session-start.test.sh
 tests/fm-startup-network.test.sh
 FM_SESSIONSTART_HOOK_LIVE_E2E=1 tests/fm-sessionstart-hook-live-e2e.test.sh
 FM_PI_SESSIONSTART_RACE_LIVE_E2E=1 tests/fm-sessionstart-hook-live-e2e.test.sh
-FM_SESSIONSTART_INSTRUCTION_REFRESH_LIVE_E2E=1 tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh
-FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh
-FM_OPENCODE_LIVE_E2E=1 tests/fm-opencode-primary-live-e2e.test.sh
 ```
+
+The Pi instruction-refresh, Pi primary, and OpenCode primary live guards were removed when quartermaster cut the Pi and OpenCode harnesses from its supported surface, so they are no longer current entry points.
 
 `tests/fm-sessionstart-hook-live-e2e.test.sh` is the command that refreshes the Claude, Codex exec, and Pi table above; run it after upgrading any of those harnesses.
 It reports an absent adapter explicitly, asserts Pi compaction rather than noting it, and refuses to pass when none of those three adapters was installed.
-Cursor's refresh command is `FM_CURSOR_PRIMARY_LIVE_E2E=1 tests/fm-cursor-primary-live-e2e.test.sh`, recorded under [Cursor primary park](#cursor-primary-park-2026-08-13).
+Cursor's live guard was removed when quartermaster cut the Cursor harness from its supported surface; its last recorded run is retained as historical evidence under [Cursor primary park](#cursor-primary-park-2026-08-13).
 
 The Ahoy first-message boundary was reverified on 2026-07-22 with Pi 0.81.1 and OpenCode 1.17.18.
 Marked current operational input and the two exact legacy compatibility shapes selected Bearings, while genuine near-miss captain messages remained real boundaries.
@@ -392,9 +391,9 @@ Current entry points:
 ```sh
 tests/fm-turnend-guard.test.sh
 tests/fm-supervision-instructions.test.sh
-FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh
-FM_GROK_STOP_LIVE_E2E=1 FM_GROK_NATIVE_BIN="$native_grok" FM_GROK_LEGACY_BIN="$pre_native_grok" tests/fm-grok-stop-live-e2e.test.sh
 ```
+
+The Pi primary and Grok stop live guards were removed when quartermaster cut those harnesses from its supported surface.
 
 The Claude auto-arm false-failure, guard-predicate, and monotonic bounded fail-open correction was verified on 2026-08-02 with the installed ShellCheck 0.11.0 and isolated behavior suites.
 
@@ -522,11 +521,11 @@ grok 0.2.103 (89c3d36fb6f1) [stable]
 | Harness | Exact opt-in command | Observed guarantee |
 | --- | --- | --- |
 | Claude | `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` | The tracked `SessionStart` hook reclaimed a stale owner before two Stop-owned cycles, and a competing live owner prevented arm, rewake, epoch write, or lock replacement. |
-| Codex | `FM_CODEX_LIVE_E2E=1 tests/fm-codex-continuity-live-e2e.test.sh` | The one-second foreground checkpoint returned without switching to the arm wrapper. |
-| OpenCode | `FM_OPENCODE_LIVE_E2E=1 tests/fm-opencode-primary-live-e2e.test.sh` | A verified successor existed before prompt handling, with no model re-arm or turn-end fallback. |
-| Pi | `FM_PI_LIVE_E2E=1 FM_PI_LIVE_WATCH_ONLY=1 tests/fm-pi-primary-live-e2e.test.sh` | Three consecutive actionable closes each produced a ledger-linked successor, and an intentional stopped-chain failure still raised the outage alarm. |
-| omp | `FM_OMP_LIVE_E2E=1 tests/fm-omp-primary-live-e2e.test.sh` | One initial `fm_watch_arm_omp` invocation (the openai-codex model reaches extension tools through omp's `xd://` virtual-file bridge, a `write` to `xd://fm_watch_arm_omp`, counted as the same invocation) started a live watcher; an actionable close spawned a ledger-linked successor and woke main exactly once; the lab is reaped by path, and omp 18.1.11 did not exit within 30s of its rpc stdin closing, recorded as a note. omp 18.1.11, 2026-09-05. |
-| Grok | `FM_GROK_LIVE_E2E=1 tests/fm-grok-continuity-live-e2e.test.sh` | Native task completion surfaced the actionable close and the cycle ledger recorded `reason=actionable-signal`. |
+| Codex | Retired — Codex was cut from quartermaster's supported surface. | The one-second foreground checkpoint returned without switching to the arm wrapper. |
+| OpenCode | Retired — OpenCode was cut from quartermaster's supported surface. | A verified successor existed before prompt handling, with no model re-arm or turn-end fallback. |
+| Pi | Retired — Pi was cut from quartermaster's supported surface. | Three consecutive actionable closes each produced a ledger-linked successor, and an intentional stopped-chain failure still raised the outage alarm. |
+| omp | Retired — omp was cut from quartermaster's supported surface. | One initial `fm_watch_arm_omp` invocation (the openai-codex model reaches extension tools through omp's `xd://` virtual-file bridge, a `write` to `xd://fm_watch_arm_omp`, counted as the same invocation) started a live watcher; an actionable close spawned a ledger-linked successor and woke main exactly once; the lab is reaped by path, and omp 18.1.11 did not exit within 30s of its rpc stdin closing, recorded as a note. omp 18.1.11, 2026-09-05. |
+| Grok | Retired — Grok was cut from quartermaster's supported surface. | Native task completion surfaced the actionable close and the cycle ledger recorded `reason=actionable-signal`. |
 
 Pi 0.81.1 repeated the continuity and clean-exit lifecycle on 2026-07-23 after the Calm presentation changes.
 
@@ -630,8 +629,8 @@ Before the Claude default-on flip, without `config/supervision-host`, the same l
 | Pi primary in a Herdr lab, attended: branch outcome, main lands | ok | ok |
 | Pi primary in a Herdr lab, away: branch handles the finish, main parked, return brief | ok | ok |
 | `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` | ok | ok |
-| `FM_PI_BRANCH_LIVE_E2E=1 tests/fm-pi-branch-live-e2e.test.sh` | 5 of 5 ok | 5 of 5 ok |
-| `tests/fm-pi-branch-responsiveness-live-e2e.test.sh` | ok | ok |
+| Pi branch live guard (retired — Pi cut from quartermaster's supported surface) | 5 of 5 ok | 5 of 5 ok |
+| Pi branch responsiveness guard (retired — Pi cut from quartermaster's supported surface) | ok | ok |
 | `FM_AFK_PI_HERDR_E2E=1 tests/fm-afk-pi-herdr-return-e2e.test.sh` | 4 of 4 ok | 4 of 4 ok |
 
 The Herdr return guard needs the operator's login shell: under `SHELL=/bin/bash` its lab pane's login profile drops `pi` from `PATH` and the guard reports that the primary never became idle, in both trees.
@@ -681,11 +680,11 @@ The live guards gave the same results in both trees:
 | --- | --- | --- |
 | `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` | ok | ok |
 | `FM_SUPERVISION_HOST_LIVE_E2E=1 tests/fm-supervision-host-live-e2e.test.sh` | ok | ok |
-| `FM_CURSOR_PRIMARY_LIVE_E2E=1 tests/fm-cursor-primary-live-e2e.test.sh` | 7 of 7 ok | 7 of 7 ok |
-| `FM_CODEX_LIVE_E2E=1 tests/fm-codex-continuity-live-e2e.test.sh` | ok | ok |
-| `FM_GROK_LIVE_E2E=1 tests/fm-grok-continuity-live-e2e.test.sh` | ok | ok |
-| `FM_GROK_STOP_LIVE_E2E=1 tests/fm-grok-stop-live-e2e.test.sh` (native 1.0.41, legacy 0.2.102) | `not ok - native path expected two Stop payloads, got 3` | same |
-| `FM_OPENCODE_LIVE_E2E=1 tests/fm-opencode-primary-live-e2e.test.sh` | `not ok - ... "The usage limit has been reached","statusCode":429` | same |
+| Cursor primary guard (retired — Cursor cut from quartermaster's supported surface) | 7 of 7 ok | 7 of 7 ok |
+| Codex continuity guard (retired — Codex cut from quartermaster's supported surface) | ok | ok |
+| Grok continuity guard (retired — Grok cut from quartermaster's supported surface) | ok | ok |
+| Grok stop guard (retired — Grok cut from quartermaster's supported surface) (native 1.0.41, legacy 0.2.102) | `not ok - native path expected two Stop payloads, got 3` | same |
+| OpenCode primary guard (retired — OpenCode cut from quartermaster's supported surface) | `not ok - ... "The usage limit has been reached","statusCode":429` | same |
 
 The Grok stop guard was last verified on 0.2.112 and has drifted from Grok 1.0.41 in both trees.
 

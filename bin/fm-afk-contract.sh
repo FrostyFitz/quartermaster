@@ -239,8 +239,12 @@ fm_afk_contract_usage() {
   sed -n '/^# Usage:/,/^# CROSS-SUBSYSTEM LOCK/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'
 }
 
-fm_afk_contract_now_iso() {
-  date -u +%Y-%m-%dT%H:%M:%SZ
+fm_afk_contract_now_iso() {  # [epoch] - converts epoch if given, else the current second
+  if [ $# -gt 0 ]; then
+    date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ
+  else
+    date -u +%Y-%m-%dT%H:%M:%SZ
+  fi
 }
 
 # --- record writing ---------------------------------------------------------
@@ -523,8 +527,8 @@ fm_afk_contract_cmd_enter() {
     fm_afk_contract_render_readback "$record"
     return
   fi
-  now=$(fm_afk_contract_now_iso)
   now_epoch=$(date +%s)
+  now=$(fm_afk_contract_now_iso "$now_epoch")
   session_entered=$now
   session_entered_epoch=$now_epoch
   # A replacement carries the session entry forward; quiet mode becoming the

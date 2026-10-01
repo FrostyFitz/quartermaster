@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # tests/fm-harness-liveness-drift-live-e2e.test.sh - default-on drift guard proving
-# every INSTALLED harness is still classified `alive` by the tmux liveness
+# a real installed Claude Code is still classified `alive` by the tmux liveness
 # probe (bin/backends/tmux.sh) AND still identified by the harness-detection
 # ancestry walk (bin/fm-harness.sh).
 #
-# Why this file exists: both verdicts depend on how a harness names its own
-# process, which is a surface the harness vendor controls and changes without
-# notice. Claude Code began reporting its version string as its process name and
-# became unattributable, which silently degraded supervision. A regression that
-# only a real harness release can cause needs a check that runs real harnesses;
-# a stubbed agent cannot see it, and neither can a table of names transcribed
-# from a previous release.
+# Why this file exists: both verdicts depend on how the harness names its own
+# process, which is a surface the vendor controls and changes without notice.
+# Claude Code began reporting its version string as its process name and
+# became unattributable, which silently degraded supervision. A regression
+# that only a real harness release can cause needs a check that runs the real
+# harness; a stubbed agent cannot see it, and neither can a table of names
+# transcribed from a previous release.
 #
 # Detection carries the same exposure for a second reason: a structural ancestor
 # now outranks an environment marker (bin/fm-harness.sh owns that boundary), so
@@ -19,16 +19,15 @@
 # is further up the tree. This guard is what catches that at the release that
 # causes it.
 #
-# Each harness is launched bare, with no prompt, so this consumes no model
-# tokens. The launch uses whatever credentials the harness already has; an
-# unauthenticated harness still starts its process, which is all the liveness
-# probe reads.
+# Claude is launched bare, with no prompt, so this consumes no model tokens.
+# The launch uses whatever credentials Claude already has; an unauthenticated
+# process still starts, which is all the liveness probe reads.
 #
-# Portable serial CI installs the public Pi package but no credentials, so this
-# guard checks that available token-free surface there and runs against every installed
-# harness on more capable hosts. The portable counterpart in
-# tests/fm-tmux-agent-liveness.test.sh pins the classifier logic in CI. Run this
-# guard after any harness upgrade and before trusting refreshed evidence.
+# This guard runs only Claude: quartermaster ships Claude Code as the sole
+# verified harness, and a live e2e test never launches a real non-Claude
+# harness binary. The portable counterpart in tests/fm-tmux-agent-liveness.test.sh
+# pins the classifier logic in CI. Run this guard after any Claude Code
+# upgrade and before trusting refreshed evidence.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -64,36 +63,16 @@ export PATH
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-backend.sh"
-# shellcheck source=/dev/null
-. "$ROOT/bin/fm-cursor-lib.sh"
 fm_backend_source tmux || fail "fm_backend_source tmux failed"
 
 "$REAL_TMUX" -L "$SOCKET" new-session -d -s "$SESSION" -n control -c "$LAB/wt" \
   || fail "could not start the private tmux server"
 
-# Kimi is not required to be on PATH; mirror bin/fm-spawn.sh's own resolution
-# order so this guard covers the same binary firstmate would actually launch.
 resolve_harness_binary() {  # <harness>
   local harness=$1 candidate
-  # cursor is resolved FIRST, before the generic PATH lookup, and only through
-  # the verified owner fm-spawn uses. The Cursor agent never installs as
-  # `cursor`: it installs as `cursor-agent` plus the legacy alias `agent`. A
-  # machine that also has the Cursor editor does have an executable `cursor` on
-  # PATH, and launching that one exits immediately, leaving a bare shell in the
-  # pane that this guard then reports as liveness drift the classifier can do
-  # nothing about. Asking the owner first also keeps an unrelated executable
-  # named `agent` rejected here exactly as it would be at launch.
-  if [ "$harness" = cursor ]; then
-    fm_cursor_resolve_binary 2>/dev/null && return 0
-    return 1
-  fi
   candidate=$(command -v "$harness" 2>/dev/null || true)
   if [ -n "$candidate" ] && [ -x "$candidate" ]; then
     printf '%s\n' "$candidate"
-    return 0
-  fi
-  if [ "$harness" = kimi ] && [ -n "${HOME:-}" ] && [ -x "$HOME/.kimi-code/bin/kimi" ]; then
-    printf '%s\n' "$HOME/.kimi-code/bin/kimi"
     return 0
   fi
   return 1
@@ -102,16 +81,12 @@ resolve_harness_binary() {  # <harness>
 CHECKED=0
 SKIPPED=
 
-# The verified adapters, in the order the harness-adapters skill router records
-# them. An adapter that gains a verified launch path belongs here too.
-# muse matters most of all here: its launcher execs a VERSION-SUFFIXED binary,
-# so the live process name changes on every auto-update and its install path
-# carries no `muse` component to fall back on. That is precisely the drift this
-# guard exists to catch, and only a real muse release can produce it.
-# cursor matters for the same reason muse does, from the other direction: it
-# runs as a bundled node script, so its pane title is a bare `node` that no name
-# pattern can own, and identity has to come from its install path or argv[0].
-for harness in claude codex opencode pi pi-signed grok kimi cursor muse; do
+# quartermaster ships Claude Code as the sole verified harness, so this guard
+# only ever launches a real claude process. The loop is kept at one member so
+# the body below (continue/harness variable) stays unchanged if a second
+# verified harness is ever added.
+# shellcheck disable=SC2043
+for harness in claude; do
   if ! bin_path=$(resolve_harness_binary "$harness"); then
     SKIPPED="$SKIPPED $harness"
     note "skip: $harness is not installed on this machine, so its classification is unverified here"
@@ -122,13 +97,7 @@ for harness in claude codex opencode pi pi-signed grok kimi cursor muse; do
   [ -n "$version" ] || version="unknown"
 
   target="$SESSION:$harness"
-  # cursor blocks on a workspace-trust prompt in a directory it has never seen,
-  # which would hang this probe rather than classify anything; --trust is the
-  # same flag fm-spawn passes for the same reason.
-  launch_args=""
-  [ "$harness" = cursor ] && launch_args="--trust"
-  # shellcheck disable=SC2086  # deliberate: an empty value must add no argument
-  "$REAL_TMUX" -L "$SOCKET" new-window -d -t "$SESSION:" -n "$harness" -c "$LAB/wt" -- "$bin_path" $launch_args \
+  "$REAL_TMUX" -L "$SOCKET" new-window -d -t "$SESSION:" -n "$harness" -c "$LAB/wt" -- "$bin_path" \
     || fail "$harness ($version): could not launch a window for the liveness probe"
 
   state=
@@ -149,10 +118,7 @@ for harness in claude codex opencode pi pi-signed grok kimi cursor muse; do
   pass "harness liveness: $harness $version classifies alive"
 
   # Detection: ask the ancestry walk what it makes of this real harness process.
-  # Both Pi identities share one launcher name, so ancestry can only ever prove
-  # the family; only the launch-boundary marker selects the signed identity.
   expect_harness=$harness
-  [ "$harness" = pi-signed ] && expect_harness=pi
   pane_pid=$("$REAL_TMUX" -L "$SOCKET" display-message -p -t "$target" '#{pane_pid}' 2>/dev/null | tr -d ' ')
   [ -n "$pane_pid" ] || fail "$harness ($version): could not read the pane pid for the detection probe"
   # Probe from BELOW the pane process, not the pane process alone. The shipped

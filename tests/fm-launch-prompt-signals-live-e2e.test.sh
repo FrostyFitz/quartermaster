@@ -3,27 +3,23 @@
 # family). Per .agents/skills/firstmate-coding-guidelines "Harness-dependent
 # checks", a classifier built on vendor-rendered dialog text must be proven
 # against the REAL installed harness, because a stub can only confirm the
-# assumption already written into the stub - and this guard exists because that
-# assumption was wrong once already: an initial Pi signature, sourced only from
-# the installed binary's own UI strings ("Project trust", an internal panel
-# title never rendered as the dialog's own heading), silently never matched the
-# real screen ("Trust project folder?") until this guard's first live run
-# caught it.
+# assumption already written into the stub.
 #
-# For each of claude, pi (covering pi-signed and omp, which share Pi's engine
-# and trust gate), and gemini that is actually installed, this drives the REAL
-# binary in an isolated tmux server into its genuine interactive launch prompt
-# (a fresh untrusted worktree carrying a project-local trust-requiring
-# resource for claude and pi, a fresh credential-less environment for gemini),
-# captures the pane with the exact production shape (bin/fm-backend.sh's
-# fm_backend_tmux_capture: `tmux capture-pane -p -S -40`), arms a scratch
-# busy-state record exactly as fm-spawn.sh does at launch, and requires
-# fm_busy_classify to report `unknown launch-prompt` instead of the record's
-# seeded `busy fm-spawn`. No prompt is ever submitted and no dialog is ever
-# answered (Escape only, never Enter), so no model tokens are spent and no
-# operator credential store is written to. An absent harness binary is
-# reported explicitly and skipped rather than silently passing over it; a run
-# that checked nothing fails.
+# quartermaster ships Claude Code as the sole verified harness, so this guard
+# only ever launches a real claude process; a live e2e test never launches a
+# real non-Claude harness binary.
+#
+# For the installed claude, this drives the REAL binary in an isolated tmux
+# server into its genuine interactive launch prompt (a fresh untrusted
+# worktree), captures the pane with the exact production shape
+# (bin/fm-backend.sh's fm_backend_tmux_capture: `tmux capture-pane -p -S
+# -40`), arms a scratch busy-state record exactly as fm-spawn.sh does at
+# launch, and requires fm_busy_classify to report `unknown launch-prompt`
+# instead of the record's seeded `busy fm-spawn`. No prompt is ever
+# submitted and no dialog is ever answered (Escape only, never Enter), so no
+# model tokens are spent and no operator credential store is written to. An
+# absent harness binary is reported explicitly and skipped rather than
+# silently passing over it; a run that checked nothing fails.
 #
 # Precondition: this machine's default `claude` config must already be past
 # first-run onboarding (a subscription or API key already selected, and a
@@ -35,7 +31,7 @@
 #
 # Run explicitly with FM_LAUNCH_PROMPT_SIGNALS_LIVE=1. Refresh
 # docs/verification/runtime-backends.md ("Launch-prompt backstop signatures")
-# from this guard's output after any of claude/pi/gemini upgrades.
+# from this guard's output after any Claude Code upgrade.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -96,11 +92,10 @@ watcher_gate_not_busy() {  # <lab> <state> <target> <harness> <tail>
 # launch-prompt. Never answers the dialog: Escape only, never Enter.
 #
 # Writes the captured tail to <tail-out> rather than returning it on stdout:
-# a caller that needs the tail (the Pi case, which reuses it for pi-signed and
-# omp) must NOT wrap this whole function in a command substitution just to
-# capture that output, because `fail` calls `exit`, and `exit` inside a
-# `$(...)` subshell only ends that subshell - a real failure would be silently
-# swallowed there instead of failing the guard.
+# a caller that needs the tail must NOT wrap this whole function in a command
+# substitution just to capture that output, because `fail` calls `exit`, and
+# `exit` inside a `$(...)` subshell only ends that subshell - a real failure
+# would be silently swallowed there instead of failing the guard.
 check_harness() {  # <harness> <session> <extra-path> <extra-content> <expect-regex> <tail-out> <cmd...>
   local harness=$1 session=$2 extra_path=$3 extra_content=$4 expect=$5 tail_out=$6
   local target="$session:w" lab state tail out
@@ -153,50 +148,6 @@ if [ -x "${CLAUDE_BIN:-}" ]; then
   pass "claude: a real launch parked on its own rendered trust dialog surfaces through the watcher gate"
 else
   note "claude not installed - launch-prompt signature not checked"
-fi
-
-PI_BIN=$(command -v pi 2>/dev/null || true)
-if [ -x "${PI_BIN:-}" ]; then
-  VERSION_OUT=$("$PI_BIN" --version 2>&1) || fail "pi --version failed: $VERSION_OUT"
-  note "live pi version: $VERSION_OUT"
-  # A fresh, isolated HOME is required so pi's own trust store has no prior
-  # decision for this scratch worktree; a project-local .pi/extensions/ file
-  # is what actually gates a fresh worktree behind the dialog (pi only asks
-  # when the directory holds a trust-requiring resource), exactly the shape
-  # fm-spawn.sh's own pi launch always carries.
-  PI_HOME_LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-launch-prompt-pi-home.XXXXXX") || fail "pi: could not create the isolated HOME"
-  LABS+=("$PI_HOME_LAB")
-  PI_TAIL_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-launch-prompt-pi-tail.XXXXXX") || fail "pi: could not create the tail capture file"
-  LABS+=("$PI_TAIL_FILE")
-  check_harness pi fm-lp-pi-$$ '.pi/extensions/dummy.ts' 'export default {};' \
-    'Trust project folder' "$PI_TAIL_FILE" \
-    env HOME="$PI_HOME_LAB" "$PI_BIN" hello
-  # pi-signed and omp share Pi's engine and the same project-trust gate
-  # (fm_busy_launch_prompt_parked), so the one real capture also proves them,
-  # each against its own freshly armed fm-spawn seed record.
-  for h in pi-signed omp; do
-    hstate=$(mktemp -d "${TMPDIR:-/tmp}/fm-launch-prompt-$h.XXXXXX") || fail "$h: could not create the isolated state dir"
-    LABS+=("$hstate")
-    "$EV" arm "$hstate" t1 >/dev/null || fail "$h: could not arm the scratch busy-state record"
-    out=$(fm_busy_classify tmux w1 "$h" t1 "$hstate" "$(cat "$PI_TAIL_FILE")")
-    [ "$out" = "unknown launch-prompt" ] \
-      || fail "$h: the same real Pi trust-dialog capture classified '$out', expected 'unknown launch-prompt'"
-  done
-  pass "pi, pi-signed, omp: a real Pi-engine launch parked on its own rendered trust dialog surfaces through the watcher gate"
-else
-  note "pi not installed - launch-prompt signature not checked"
-fi
-
-GEMINI_BIN=$(command -v gemini 2>/dev/null || true)
-if [ -x "${GEMINI_BIN:-}" ]; then
-  VERSION_OUT=$("$GEMINI_BIN" --version 2>&1) || fail "gemini --version failed: $VERSION_OUT"
-  note "live gemini version: $VERSION_OUT"
-  check_harness gemini fm-lp-gemini-$$ '' '' \
-    'How would you like to authenticate for this project|Do you trust the files in this folder|Enter Gemini API Key' '' \
-    env GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_API_KEY= "$GEMINI_BIN" -y hello
-  pass "gemini: a real launch parked on its own rendered auth or trust dialog surfaces through the watcher gate"
-else
-  note "gemini not installed - launch-prompt signature not checked"
 fi
 
 [ "$CHECKED" -gt 0 ] || fail "no installed harness could be checked; this run verified nothing"
