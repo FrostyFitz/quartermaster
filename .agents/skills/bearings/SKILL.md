@@ -60,6 +60,9 @@ For a contribution wake or linked-issue filing, go directly to Contribution foll
    The same holds for a secondmate home whose current state is unavailable, and for a readable home whose `invalidity` reports a backlog-vs-metadata mismatch: the mismatch is a repair notice about that home's own books, not a reason to drop its separately projected decisions, queued, landed, or live work.
    The `(return-catchup)` gate is the same shape: an action-free notice that an away-return catch-up is still open, naming the blockers left to clear or the reason the catch-up was retained.
    Render it under Charted Next like any other warning row: reporting is not ordinary work, while acting on the fleet still waits for `bin/fm-afk-return.sh check` (`/afk`).
+   The snapshot's `vault_queue` field separately projects the memory vault's own open-work queue (`config/agent.md`'s `vault.root`/`vault.queue`), already split into `captain` and `next` buckets by the `<user_name>:` marker rule; `vault_queue.state` is `absent` (no `config/agent.md`), `unconfigured` (no `vault.root`), or `ok`.
+   Render every `vault_queue.captain` row in Captain's Call and every `vault_queue.next` row in Charted Next with its trailing project tag when present, each one labeled `vault:` so it reads as vault-sourced rather than fleet-sourced.
+   Never deduplicate a vault row against a fleet-sourced decision or gate even if they look related - the two sources are never cross-referenced.
 
 2. **Record a later reconcile notification for any home whose own books disagree.**
    When the snapshot reports a secondmate home whose `invalidity` is `orphan_in_flight`, `unowned_current`, or `terminal_in_flight`, that home's backlog and its own task metadata disagree and only that home may fix it.
@@ -95,6 +98,8 @@ For a contribution wake or linked-issue filing, go directly to Contribution foll
 
 `/bearings lavish` adds one deliverable beside the unchanged chat digest: the interactive fleet board, a myfirstmate-styled Lavish page where the captain answers Captain's Call items directly instead of replying in chat.
 `bin/fm-bearings-board.sh` owns every board mechanic - the stable board path, fm-bearings-board.v1 payload validation, template injection, live Lavish session verification and ended-session reopening, the any-origin answer binding, and listener registration - so the per-invocation work is composing the payload and running its `build`.
+Compose every `vault_queue.next` row into the plain Charted Next list the same way as any other gate row (no board-script change needed: that list is informational, not a card).
+Leave `vault_queue.captain` rows out of the board for now: a Captain's Call decision card answers back through `bin/fm-captain-hold.sh`'s keyed-answer intake, and a vault item has no backing backlog task id for that to resolve - it stays chat-only (Captain's Call in the plain digest) until a captain-approved way to act on it from the board exists.
 
 Compose the payload from the same snapshot with the same ranking judgment as the chat digest, plus these board rules:
 
@@ -148,6 +153,7 @@ Every `/bearings` chat response renders EXACTLY these four sections, in THIS ord
 
 1. **Captain's Call** - ONLY unsuppressed items that need the captain's own action now: a decision to make, a PR to approve or merge, a credential or login to provide, or a blocker only the captain can clear.
    Deferred or aged holds follow the presentation safety rule above instead.
+   Include every `vault_queue.captain` row, labeled `vault:`, without deduplicating it against any fleet-sourced row.
    Include `contributions.captain` rows in this section, deduplicating any row already represented by its live captain hold or merge call.
    Show the other contribution actors only as counts beside the checked/known coverage, and disclose `captain_omitted`, `unmeasured_homes`, stale verdicts and checks with no verdict when nonzero.
    Empty-state: "Nothing needs your action right now" is allowed only when `contributions.proven_clear` is true and the existing decision set is empty.
@@ -157,6 +163,7 @@ Every `/bearings` chat response renders EXACTLY these four sections, in THIS ord
 3. **Underway** - live work progressing on its own, one line of current state per direct report.
    Empty-state: "Nothing is underway."
 4. **Charted Next** - queued or gated work waiting on the fleet or a date, deferred or aged captain-hold safety gates, plus action-free fleet-integrity warnings.
+   Also include every `vault_queue.next` row, labeled `vault:` and carrying its trailing project tag when present, without deduplicating it against any fleet-sourced row.
    Empty-state: "Nothing is queued."
 
 Rules that keep the contract unambiguous:
