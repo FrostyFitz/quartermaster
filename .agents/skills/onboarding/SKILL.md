@@ -89,7 +89,7 @@ Write the result to `config/agent.md` (create the `config/` directory if needed;
 
 ## 6. Grant vault access
 
-Add the vault root to `.claude/settings.local.json`: `permissions.additionalDirectories` gets the vault root path as a normal absolute path, and `permissions.allow` gets a `Read` and an `Edit` rule scoped to that path. Permission rules need an extra leading slash for an absolute path - a single leading slash resolves relative to the settings file - so the rule is the vault root with `//` in front (e.g. a vault root of `/home/alex/My Vault` becomes `Read(//home/alex/My Vault/**)`, `Edit(//home/alex/My Vault/**)`); only the permission rule gets the extra slash, not `additionalDirectories` or `vault.root` in `config/agent.md`.
+Add the vault root to `.claude/settings.local.json`: `permissions.additionalDirectories` gets the vault root path as a normal absolute path, and `permissions.allow` gets a `Read` and an `Edit` rule scoped to that path. Permission rules need an extra leading slash for an absolute path - a single leading slash resolves relative to the settings file - so the rule is the vault root with `//` in front (e.g. a vault root of `/home/alex/Nova Vault` becomes `Read(//home/alex/Nova Vault/**)`, `Edit(//home/alex/Nova Vault/**)`); only the permission rule gets the extra slash, not `additionalDirectories` or `vault.root` in `config/agent.md`.
 Read the file first if it exists and merge these into its existing JSON; do not clobber any other keys or rules already there.
 If the file doesn't exist yet, create it with just these permissions.
 
