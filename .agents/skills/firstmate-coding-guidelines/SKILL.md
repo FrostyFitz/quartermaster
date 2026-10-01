@@ -115,7 +115,7 @@ Run `bin/fm-doc-audience-check.sh`; it enforces classification, README setup rou
 ## No-mistakes test configuration
 
 Never configure a deterministic suite-walk `commands.test` in any repository's no-mistakes config, whether it selects the full suite, changed tests, a family, or a fixed script list.
-Targeted validation belongs to the no-mistakes evidence path, while CI owns broad deterministic regression coverage.
+Targeted validation belongs to the no-mistakes evidence path; broad deterministic regression coverage is CI's `workflow_dispatch`-only full suite, not something push/PR CI runs automatically (`CONTRIBUTING.md`'s "Development" section owns the per-PR/full-suite split).
 Firstmate PR #3644 demonstrated the cost: pinning a 75-162-script walk took 32.7 minutes per validation, while removing it restored the 3.6-minute targeted-validation posture.
 
 ## Repo style rules
