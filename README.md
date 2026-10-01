@@ -64,6 +64,7 @@ Claude Code uses a tracked Stop hook for tokenless watcher re-arm and rewake, an
 
 ### First run
 
+Claude Code waits for you to speak first, so after launching `claude`, say hi and onboarding starts.
 On a fresh clone there is no `config/agent.md` yet, so the session-start digest reports `ONBOARDING REQUIRED` and the agent runs the onboarding skill: what to call it, what it should call you, a tone (with a sample line for each preset), two optional behavior toggles, and a memory vault - new or an existing one to import.
 Onboarding writes `config/agent.md` and grants it access to the vault, then asks you to restart, since `CLAUDE.md`'s imports (including `config/agent.md`) only load at launch; once restarted, it greets you in character.
 Re-running `/onboarding` later edits the existing config in place instead of starting over.
