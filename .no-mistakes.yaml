@@ -17,7 +17,7 @@ document:
     Read docs/documentation-audiences.md and its machine-consumed
     docs/documentation-audiences.json inventory before changing documentation.
     Apply the knowledge-placement policy in
-    .agents/skills/firstmate-coding-guidelines/SKILL.md.
+    .agents/skills/coding-guidelines/SKILL.md.
     For changed prose, verify audience, authoritative owner, current relevance,
     evidence destination, and unique safety facts, then review the complete
     branch diff again after every documentation or lint fix.
@@ -29,7 +29,7 @@ document:
 # Invocation wiring is asserted by `tests/fm-lint.test.sh` and
 # `tests/fm-lint-workflows.test.sh`.
 #
-# Keep commands.test absent; the firstmate-coding-guidelines skill owns this policy.
+# Keep commands.test absent; the coding-guidelines skill owns this policy.
 commands:
   lint: 'bin/fm-lint.sh'
 

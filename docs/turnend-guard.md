@@ -1,6 +1,6 @@
 # Primary turn-end supervision guard
 
-This doc explains the check that stops a primary Firstmate session from ending a turn while its work has no live supervision, and how each harness enforces that check at its turn boundary.
+This doc explains the check that stops a primary Quartermaster session from ending a turn while its work has no live supervision, and how each harness enforces that check at its turn boundary.
 It is for operators working out why a turn end was blocked or followed up, and for anyone changing a harness turn-end hook.
 
 This is the authoritative current contract for the "no turn ends blind" primary backstop referenced from AGENTS.md section 8.
@@ -59,7 +59,7 @@ The mid-turn pull warning in `bin/fm-guard.sh` judges watcher health differently
 ### Primary scope
 
 The guard first calls the shared primary scope.
-A secondmate home runs its own primary Firstmate session, so a genuine `.fm-secondmate-home` marker includes it whether the home is a linked worktree or plain clone.
+A secondmate home runs its own primary Quartermaster session, so a genuine `.fm-secondmate-home` marker includes it whether the home is a linked worktree or plain clone.
 The marker must meet both of these conditions:
 
 - It is a regular non-symlink file.
