@@ -1719,8 +1719,9 @@ test_vault_queue_unreadable_with_missing_queue_file() {
   write_fixture_agent_config "$home/config" "$vault" "Fitz" "Missing.md"
   fakebin=$(make_fakebin "$home")
   out=$(run "$home" "$fakebin" --json)
-  printf '%s' "$out" | jq -e '
+  printf '%s' "$out" | jq -e --arg path "$vault/Missing.md" '
     .vault_queue.state == "unreadable"
+      and .vault_queue.path == $path
       and .vault_queue.captain == []
       and .vault_queue.next == []
       and .vault_queue.omitted.captain == 0

@@ -29,8 +29,10 @@ _VAULT_FIELDS = ('root', 'entry', 'queue')
 
 def _unquote(raw):
     v = raw.strip()
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
-        return v[1:-1]
+    if v and v[0] in ('"', "'"):
+        end = v.find(v[0], 1)
+        if end != -1:
+            return v[1:end]
     # An unquoted scalar may carry a trailing "# comment".
     return re.split(r'\s+#', v, 1)[0].strip()
 

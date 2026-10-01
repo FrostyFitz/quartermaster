@@ -60,9 +60,9 @@ For a contribution wake or linked-issue filing, go directly to Contribution foll
    The same holds for a secondmate home whose current state is unavailable, and for a readable home whose `invalidity` reports a backlog-vs-metadata mismatch: the mismatch is a repair notice about that home's own books, not a reason to drop its separately projected decisions, queued, landed, or live work.
    The `(return-catchup)` gate is the same shape: an action-free notice that an away-return catch-up is still open, naming the blockers left to clear or the reason the catch-up was retained.
    Render it under Charted Next like any other warning row: reporting is not ordinary work, while acting on the fleet still waits for `bin/fm-afk-return.sh check` (`/afk`).
-   The snapshot's `vault_queue` field separately projects the memory vault's own open-work queue (`config/agent.md`'s `vault.root`/`vault.queue`), already split into `captain` and `next` buckets by the `<user_name>:` marker rule; `vault_queue.state` is `absent` (no `config/agent.md`), `unconfigured` (no `vault.root`), `unreadable` (`vault.root` is set but the queue file is missing or unreadable), or `ok`.
+   The snapshot's `vault_queue` field separately projects the memory vault's own open-work queue (`config/agent.md`'s `vault.root`/`vault.queue`), already split into `captain` and `next` buckets by the `<user_name>:` marker rule; `vault_queue.state` is `absent` (no `config/agent.md`), `unconfigured` (no `vault.root`), `unreadable` (`vault.root` is set but the queue file is missing or unreadable, with `vault_queue.path` naming the unresolved path), or `ok`.
    Render every `vault_queue.captain` row in Captain's Call and every `vault_queue.next` row in Charted Next with its trailing project tag when present, each one labeled `vault:` so it reads as vault-sourced rather than fleet-sourced.
-   When `vault_queue.state` is `unreadable`, render one explicit Charted Next warning row naming the unreadable vault queue path instead of silently showing an empty queue - a broken vault configuration must stay visible, never mask as "nothing queued".
+   When `vault_queue.state` is `unreadable`, render one explicit Charted Next warning row naming `vault_queue.path` instead of silently showing an empty queue - a broken vault configuration must stay visible, never mask as "nothing queued".
    Never deduplicate a vault row against a fleet-sourced decision or gate even if they look related - the two sources are never cross-referenced.
 
 2. **Record a later reconcile notification for any home whose own books disagree.**
@@ -165,7 +165,7 @@ Every `/bearings` chat response renders EXACTLY these four sections, in THIS ord
    Empty-state: "Nothing is underway."
 4. **Charted Next** - queued or gated work waiting on the fleet or a date, deferred or aged captain-hold safety gates, plus action-free fleet-integrity warnings.
    Also include every `vault_queue.next` row, labeled `vault:` and carrying its trailing project tag when present, without deduplicating it against any fleet-sourced row.
-   When `vault_queue.state` is `unreadable`, include one explicit warning row naming the unreadable vault queue path instead of showing an empty queue.
+   When `vault_queue.state` is `unreadable`, include one explicit warning row naming `vault_queue.path` instead of showing an empty queue.
    Empty-state: "Nothing is queued."
 
 Rules that keep the contract unambiguous:

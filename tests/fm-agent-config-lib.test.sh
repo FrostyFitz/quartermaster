@@ -99,6 +99,23 @@ EOF
   pass "fm_agent_config_read accepts single-quoted and bare unquoted scalars"
 }
 
+test_quoted_scalar_with_trailing_comment() {
+  local config
+  config="$TMP_ROOT/quoted-comment/config"
+  mkdir -p "$config"
+  cat > "$config/agent.md" <<'EOF'
+---
+name: "Porygon" # the persona name
+vault:
+  root: "/home/fitz/Porygon Vault" # primary vault
+---
+EOF
+  fm_agent_config_read "$config" || fail "read failed"
+  assert_field "$FM_AGENT_CONFIG_NAME" "Porygon" "quoted name with a trailing comment"
+  assert_field "$FM_AGENT_CONFIG_VAULT_ROOT" "/home/fitz/Porygon Vault" "quoted vault root with a trailing comment"
+  pass "fm_agent_config_read strips surrounding quotes from a quoted scalar that carries a trailing inline comment"
+}
+
 test_stale_fields_reset_between_reads() {
   local config
   config="$TMP_ROOT/reset/config"
@@ -168,6 +185,7 @@ test_parses_full_frontmatter
 test_parses_the_shipped_template
 test_defaults_entry_and_queue_when_vault_omits_them
 test_single_quoted_and_unquoted_scalars
+test_quoted_scalar_with_trailing_comment
 test_stale_fields_reset_between_reads
 test_absent_file_returns_1_with_reset_fields
 test_symlinked_file_is_refused
