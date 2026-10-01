@@ -524,6 +524,31 @@ test_changed_mode_lints_only_the_changed_file() {
   pass "fm-lint.sh changed mode lints only the changed canonical file"
 }
 
+test_changed_flag_forces_changed_mode_even_in_ci() {
+  local tmp fakebin log diff_file out target
+  tmp=$(fm_test_tmproot fm-lint-changed-flag)
+  fakebin=$(fm_fakebin "$tmp")
+  fm_lint_stub_git "$fakebin"
+  log="$tmp/shellcheck.log"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+  diff_file="$tmp/diff.nul"
+  target="bin/fm-install-shellcheck.sh"
+  fm_lint_write_diff_file "$diff_file" "$target" "README.md"
+
+  # GITHUB_ACTIONS=true and CI=true here simulate the real runner: GitHub
+  # Actions silently ignores a step env: override of its own reserved
+  # GITHUB_ACTIONS variable, so a CI job can never actually clear it to reach
+  # changed-file mode the way test_changed_mode_lints_only_the_changed_file
+  # does above. --changed must force changed-file mode anyway.
+  out=$(PATH="$fakebin:$PATH" GITHUB_ACTIONS=true CI=true FM_LINT_JOBS=1 \
+    FM_TEST_GIT_BRANCH=feature \
+    FM_TEST_GIT_DIFF_FILE="$diff_file" "$LINT" --changed 2>&1) \
+    || fail "--changed lint run failed"$'\n'"$out"
+  [ "$(cat "$log")" = "$target" ] \
+    || fail "--changed did not restrict ShellCheck to exactly the changed file under CI env vars"$'\n'"logged: $(cat "$log")"
+  pass "fm-lint.sh --changed forces changed-file mode even when GITHUB_ACTIONS/CI are true"
+}
+
 test_ci_forces_full_lint_even_with_empty_diff() {
   local listed expected
   # No git stub: CI=true must short-circuit fm-lint.sh's mode selection before
@@ -1899,6 +1924,7 @@ test_sidecar_result_exit_reflects_final_status
 test_roots_sidecar_records_per_root_lifecycle
 test_seeded_module_boundary_parity
 test_changed_mode_lints_only_the_changed_file
+test_changed_flag_forces_changed_mode_even_in_ci
 test_ci_forces_full_lint_even_with_empty_diff
 test_main_branch_forces_full_lint
 test_explicit_path_bypasses_changed_logic

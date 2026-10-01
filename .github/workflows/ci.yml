@@ -77,21 +77,21 @@ jobs:
       # fm-lint.sh's header documents its mode selection: with no explicit
       # paths, it lints the full canonical set whenever GITHUB_ACTIONS=true or
       # CI=true (so the full-suite lint job below stays CI-coverage-complete
-      # regardless of local diff). Clearing both here is fm-lint.sh's own
-      # documented switch into changed-file mode (see tests/fm-lint.test.sh,
-      # which does the same to exercise it): lint only the canonical files
+      # regardless of local diff). GitHub Actions silently ignores a step
+      # env: override of its own reserved GITHUB_ACTIONS variable, so this
+      # job cannot spoof "not CI" to reach changed-file mode - it must opt in
+      # explicitly with --changed instead (see tests/fm-lint.test.sh, which
+      # exercises --changed the same way): lint only the canonical files
       # changed since the merge-base with origin/main, plus the always-on
       # workflow YAML lint and backend-purity check.
       - name: Lint changed files
         env:
           FM_LINT_REQUIRE_BOUNDS: '1'
           FM_LINT_JOBS: '1'
-          GITHUB_ACTIONS: ''
-          CI: ''
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/fm-lint"
-          bin/fm-lint.sh --telemetry "$RUNNER_TEMP/fm-lint/changed.tsv"
+          bin/fm-lint.sh --changed --telemetry "$RUNNER_TEMP/fm-lint/changed.tsv"
       - name: Upload lint telemetry
         if: always()
         uses: actions/upload-artifact@v4
