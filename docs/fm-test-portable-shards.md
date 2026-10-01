@@ -3,6 +3,25 @@
 `bin/fm-test-run.sh` owns portable lane composition and execution.
 `bin/fm-test-isolation-proof.sh` owns the proven-isolated candidate set.
 
+## Per-PR cost policy
+
+Everything described below - both lint partitions, the portable parallel and
+serial shards, the timing aggregate, and the macOS job - runs only on
+`workflow_dispatch` ("Actions -> CI -> Run workflow" in the GitHub UI), because
+GitHub Free bills macOS runners at 10x and the full fan-out burned a month's
+Actions minutes in one day (2026-09-30 incident).
+Every push and pull request instead runs three cheap jobs: `lint-changed`
+(`bin/fm-lint.sh` in its changed-file mode - the files changed since the
+merge-base with `main`, plus workflow lint), `test-coverage`, and
+`invariants`.
+Dispatch the full suite yourself after changing anything under `bin/`, or run
+the equivalent locally with `bin/fm-test-run.sh` (see
+[CONTRIBUTING.md](../CONTRIBUTING.md#development) for the local entry points).
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) holds the exact
+trigger and `if:` gating; [`tests/fm-ci-workflow.test.sh`](../tests/fm-ci-workflow.test.sh)
+asserts that the cheap jobs stay ungated and every job below stays
+dispatch-only.
+
 ## Verification inputs
 
 Balance hints come from serial runs of the real lanes on `ubuntu-latest`.
@@ -105,6 +124,11 @@ Portable shards and each portable serial shard upload runner-generated timing JS
 
 ## Lint partitions and end-to-end latency
 
+This section describes the full-suite `lint` job (`workflow_dispatch` only; see
+[Per-PR cost policy](#per-pr-cost-policy)).
+Every push and PR instead runs `lint-changed`, `bin/fm-lint.sh`'s own
+changed-file mode over the files changed since the merge-base with `main`.
+
 `bin/fm-lint.sh` owns two canonical CI partitions, each running full source-aware ShellCheck analysis, workflow validation, and backend-purity checks.
 CI requires its per-root bounds, so an unenforceable deadline or address-space limit refuses lint rather than running uncapped; the script header owns the envelope and per-root execution contract.
 Its `--list-files` interface exposes partition membership; `tests/fm-lint.test.sh` verifies complete/disjoint executed roots and unchanged analysis flags.
@@ -130,8 +154,10 @@ A lane that reaches its tier bound needs investigation and a distribution or run
 
 | Tier | Jobs | Bound | Rationale |
 |---|---|---|---|
-| Fast | coverage guard, repo invariants, timing aggregate | 5 minutes | Seconds-long local work, so the tripwire only catches a hung runner. |
+| Fast | changed-file lint, coverage guard, repo invariants, timing aggregate | 5 minutes | Seconds-long local work, so the tripwire only catches a hung runner. |
 | Normal | lint partitions, portable parallel shards, portable serial shards, macOS stock Bash | 30 minutes, one value shared by every job in the tier | One shared hang tripwire keeps every ordinary test and lint lane on the same policy instead of allowing per-lane packing estimates or one-off caps to set the bound. |
+
+The changed-file lint, coverage guard, and repo invariants jobs run on every push and PR; every other job in this table is `workflow_dispatch`-only (see [Per-PR cost policy](#per-pr-cost-policy)).
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) holds the executable values and names each job's tier beside its `timeout-minutes`.
 [`tests/fm-ci-workflow.test.sh`](../tests/fm-ci-workflow.test.sh) holds the policy against the parsed workflow: every job belongs to exactly one tier, the workflow carries exactly two distinct job-level values, the fast tier stays within 5-10 minutes, and the normal jobs share one 30-minute budget.

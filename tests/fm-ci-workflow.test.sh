@@ -73,8 +73,13 @@ puts YAML.load_file(ARGV[0]).fetch("jobs").fetch(ARGV[1]).fetch("timeout-minutes
 # Tier membership is the executable inventory of the timeout policy: a new job
 # must join a tier, and a job-level value outside these tiers is exactly the
 # one-off number the policy removed.
-FAST_TIER_JOBS='test-coverage invariants tests-timing-aggregate'
+FAST_TIER_JOBS='lint-changed test-coverage invariants tests-timing-aggregate'
 NORMAL_TIER_JOBS='lint tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
+
+# Per-PR cost split (2026-09-30): these three run on every push/PR; everything
+# else is the full suite, available only via workflow_dispatch.
+CHEAP_TIER_JOBS='lint-changed test-coverage invariants'
+FULL_SUITE_JOBS='lint tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial tests-timing-aggregate macos-stock-bash'
 
 # Print the one timeout every listed job shares; fail on any disagreement.
 tier_timeout() {  # <tier> <job>...
@@ -96,6 +101,23 @@ tier_timeout() {  # <tier> <job>...
 # Print every job id in the workflow, one per line.
 workflow_jobs() {
   ruby -ryaml -e 'puts YAML.load_file(ARGV[0]).fetch("jobs").keys' "$CI_WORKFLOW"
+}
+
+# Print a job's top-level "if" condition, or an empty line when it has none.
+# Psych has no bearing here (unlike the "on" key below): "if" is an ordinary
+# string key, never YAML 1.1 boolean-resolved.
+job_if() {
+  ruby -ryaml -e '
+job = YAML.load_file(ARGV[0]).fetch("jobs").fetch(ARGV[1])
+puts job.key?("if") ? job["if"] : ""
+' "$CI_WORKFLOW" "$1"
+}
+
+# Print the workflow'"'"'s trigger names, one per line. YAML 1.1 (Psych'"'"'s
+# default resolver) reads the unquoted "on:" key as the boolean `true`, not
+# the string "on", so callers must index the parsed doc with `true`.
+workflow_triggers() {
+  ruby -ryaml -e 'puts YAML.load_file(ARGV[0]).fetch(true).keys' "$CI_WORKFLOW"
 }
 
 group_of() { printf '%s\n' "$1" | cut -f1; }
@@ -187,6 +209,60 @@ test_normal_tier_shares_one_budget() {
   pass "normal tier jobs share one $normal minute budget"
 }
 
+test_triggers_on_push_pr_and_dispatch() {
+  local triggers want
+  triggers=$(workflow_triggers) || fail "could not read ci.yml triggers"
+  for want in push pull_request workflow_dispatch; do
+    printf '%s\n' "$triggers" | grep -qx "$want" \
+      || fail "ci.yml must trigger on $want; got: $(printf '%s' "$triggers" | tr '\n' ' ')"
+  done
+  pass "ci.yml triggers on push, pull_request, and workflow_dispatch"
+}
+
+# The cheap tier (lint-changed, test-coverage, invariants) is what keeps
+# per-PR spend low; it must never gain a workflow_dispatch-only gate that
+# would silently drop it from push/PR runs.
+test_cheap_tier_runs_on_every_push_and_pr() {
+  local job cond
+  # shellcheck disable=SC2086
+  for job in $CHEAP_TIER_JOBS; do
+    cond=$(job_if "$job") || fail "could not read the $job if condition"
+    case "$cond" in
+      *workflow_dispatch*) fail "$job must run on every push/PR but is gated: $cond" ;;
+    esac
+  done
+  pass "cheap-tier jobs carry no workflow_dispatch-only gate"
+}
+
+# The full suite is expensive (two lint partitions, both portable parallel
+# shards, nine serial shards, the timing aggregate, and the 10x-billed macOS
+# job), so every one of those jobs must be dispatch-only or the per-PR cost
+# this workflow exists to cap comes right back.
+test_full_suite_jobs_are_dispatch_only() {
+  local job cond
+  # shellcheck disable=SC2086
+  for job in $FULL_SUITE_JOBS; do
+    cond=$(job_if "$job") || fail "could not read the $job if condition"
+    case "$cond" in
+      *"github.event_name == 'workflow_dispatch'"*) : ;;
+      *) fail "$job must be gated to workflow_dispatch only, got: $cond" ;;
+    esac
+  done
+  pass "every full-suite job runs only on workflow_dispatch"
+}
+
+# Every job referenced by the two tier lists above must be the workflow's
+# complete job set, with none left ungated or unaccounted for.
+test_tier_lists_cover_every_job() {
+  local expected actual
+  # shellcheck disable=SC2086
+  expected=$(printf '%s\n' $CHEAP_TIER_JOBS $FULL_SUITE_JOBS | LC_ALL=C sort)
+  actual=$(workflow_jobs | LC_ALL=C sort) || fail "could not list ci.yml jobs"
+  [ "$actual" = "$expected" ] \
+    || fail "ci.yml jobs and the cheap/full-suite tier lists disagree"$'\n'"workflow: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"tiers: $(printf '%s' "$expected" | tr '\n' ' ')"
+  pass "every ci.yml job is accounted for as either cheap-tier or full-suite"
+}
+
 test_ci_matrices_match_executable_partitions() {
   ruby -ryaml -ropen3 - "$CI_WORKFLOW" "$ROOT" <<'RUBY' || fail "CI partition contract"
 jobs = YAML.load_file(ARGV[0]).fetch("jobs")
@@ -225,3 +301,7 @@ test_every_job_has_a_finite_timeout
 test_every_job_belongs_to_exactly_one_timeout_tier
 test_fast_tier_shares_one_short_tripwire
 test_normal_tier_shares_one_budget
+test_triggers_on_push_pr_and_dispatch
+test_cheap_tier_runs_on_every_push_and_pr
+test_full_suite_jobs_are_dispatch_only
+test_tier_lists_cover_every_job
