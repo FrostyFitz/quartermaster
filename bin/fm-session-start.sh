@@ -747,7 +747,7 @@ fi
 # must outrank everything else in the digest, so it prints first, loud, and
 # unconditionally (read-only or not, reemit or not) - the rest of the digest
 # still runs below it either way.
-if [ ! -f "$CONFIG/agent.md" ]; then
+if [ ! -f "$CONFIG/agent.md" ] || [ -L "$CONFIG/agent.md" ]; then
   BAR='●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   {
     printf '\n%s\n' "$BAR"
