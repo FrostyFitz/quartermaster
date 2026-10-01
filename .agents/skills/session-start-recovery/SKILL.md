@@ -31,8 +31,9 @@ The locked startup inactive-outcome scan joins that worker so a slow local curre
    That liveness line is a fast presence check only, not a full state read - when you need a crew's actual current state (a run-step, not just "is the pane there"), read it with `bin/fm-crew-state.sh <id>` as before; the digest deliberately skips that deeper, slower read for every task so it stays fast and bounded.
 6. **Network checks** - after the fleet-state digest, the deferred stage's result, or an explicit statement of what it has not confirmed yet.
    A read-only session runs no network checks at all and says so.
-7. **Context digest and next step** - last of the bulk sections, the full contents of `data/projects.md`, `data/secondmates.md`, `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`, each clearly delimited, followed by the closing reminder.
-   A file that does not exist prints an explicit `ABSENT` marker, never confused with an empty-but-present file: absence is meaningful (`captain.md` absent means use the firstmate repo's built-in defaults, `projects.md` absent means rebuild it from the clones under `projects/`, etc.).
+7. **Context digest and next step** - last of the bulk sections, the full contents of `data/projects.md`, `data/secondmates.md`, and `data/learnings.md`, plus a VAULT section (the memory vault's entry note in full and a bounded open-work queue summary, both resolved from `config/agent.md`), each clearly delimited, followed by the closing reminder.
+   A file that does not exist prints an explicit `ABSENT` marker, never confused with an empty-but-present file: absence is meaningful (`projects.md` absent means rebuild it from the clones under `projects/`, etc.); a vault file reports `ABSENT` or `UNREADABLE` the same way.
+   A missing `config/agent.md` is reported separately and loudly as an `ONBOARDING REQUIRED` banner near the top of the digest, not buried in this section - load the `onboarding` skill before anything else when it appears.
    The closing reminder points back to the emitted supervision block and preserves only the lock, afk, and read-once reminders.
 
 Bootstrap detects first, asks for consent, and installs only after the captain approves in the current session.
