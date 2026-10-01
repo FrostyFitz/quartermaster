@@ -19,6 +19,20 @@ If `config/agent.md` already exists, treat this as an edit pass: read it first, 
 Run [`bin/fm-bootstrap.sh`](../../../bin/fm-bootstrap.sh); it is the single owner of the toolchain check (gh auth, tmux or cmux, treehouse, no-mistakes, the axi tools).
 Do not reimplement its checks here.
 For any printed diagnostic line, follow [`bootstrap-diagnostics`](../bootstrap-diagnostics/SKILL.md) and [`session-start-recovery`](../session-start-recovery/SKILL.md): detect, get the user's consent, then install - never install anything they haven't approved in this session.
+
+Check whether the recommended `ponytail` plugin (a lazy-senior-dev coding discipline for Claude Code: ship the simplest thing that actually works) is already enabled at user scope: `claude plugin list --json` reporting an entry with id `ponytail@ponytail` and `enabled: true`, or `~/.claude/settings.json`'s `enabledPlugins` containing `"ponytail@ponytail": true`.
+If it's already enabled, skip silently.
+Otherwise, ask once, in one message, whether to install it; a one-line description of what it does is enough.
+On yes, install it at user scope so it covers both this first mate and every crewmate - crewmates launch `claude` in project worktrees and read `~/.claude/settings.json`, not this repo's `.claude/settings.json`, so anything less than user scope would miss them:
+
+```sh
+claude plugin marketplace add DietrichGebert/ponytail
+claude plugin install ponytail@ponytail --scope user
+```
+
+On no, move on.
+Never install it without that explicit yes in this session.
+
 If this session is running on native Windows rather than WSL2, stop here and tell the user to re-run onboarding from inside WSL2; do not continue the rest of this flow on native Windows.
 
 ## 2. Questions, one at a time
@@ -27,16 +41,17 @@ Ask each question on its own, wait for the answer, then move to the next.
 Never ask two of these in the same message.
 
 1. What should the agent be called?
-2. What should the agent call the user?
-3. Which tone? Read the three preset files and show each one's sample line before asking the user to pick:
+2. What's your name?
+3. What should the agent call the user?
+4. Which tone? Read the three preset files and show each one's sample line before asking the user to pick:
    [`templates/persona/tones/professional.md`](../../../templates/persona/tones/professional.md),
    [`templates/persona/tones/friendly.md`](../../../templates/persona/tones/friendly.md),
    [`templates/persona/tones/salty-butler.md`](../../../templates/persona/tones/salty-butler.md).
    A fourth option, custom, skips the preset; ask the user to describe the persona in their own words instead, and store that verbatim.
-4. Offer both toggles, with the exact text from
+5. Offer both toggles, with the exact text from
    [`templates/persona/toggles/never_suggest_stopping.md`](../../../templates/persona/toggles/never_suggest_stopping.md) and
    [`templates/persona/toggles/one_question_then_stop.md`](../../../templates/persona/toggles/one_question_then_stop.md), and ask which (if either) to turn on. Both default off.
-5. New vault or import an existing one?
+6. New vault or import an existing one?
 
 ## 3. New vault
 
@@ -64,7 +79,7 @@ Never rewrite, move, or reformat a note the import found; existing content is un
 
 Start from [`templates/agent.md`](../../../templates/agent.md) (or the existing `config/agent.md` on a re-run) and fill it in:
 
-- `name`, `address`, `tone`, and `vault.root` from the answers above.
+- `name`, `user_name`, `address`, `tone`, and `vault.root` from the answers above.
 - `vault.entry`, `vault.queue`, `vault.daily_dir`, `vault.daily_template`, and `vault.daily_layout` from the new-vault defaults or the confirmed import mapping.
 - `toggles.never_suggest_stopping` and `toggles.one_question_then_stop` from the answers.
 - The Persona body: the chosen tone preset's locked text copied in verbatim (the preset file's text above its `---` sample divider, never the sample line itself), or the user's own words verbatim for `custom`, followed by the text of each toggle the user turned on.

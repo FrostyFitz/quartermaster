@@ -76,6 +76,20 @@ claude
 AGENTS.md takes over from there.
 Claude Code uses a tracked Stop hook for tokenless watcher re-arm and rewake, and has a verified turn-end guard path when launched with its documented setup.
 
+### First run
+
+On a fresh clone there is no `config/agent.md` yet, so the session-start digest reports `ONBOARDING REQUIRED` and the agent runs the onboarding skill: what to call it, what it should call you, a tone (with a sample line for each preset), two optional behavior toggles, and a memory vault - new or an existing one to import.
+Onboarding writes `config/agent.md` and grants it access to the vault, then asks you to restart, since `CLAUDE.md`'s imports (including `config/agent.md`) only load at launch; once restarted, it greets you in character.
+Re-running `/onboarding` later edits the existing config in place instead of starting over.
+
+**Recommended plugins:** onboarding also offers to install [ponytail](https://github.com/DietrichGebert/ponytail) - a lazy-senior-dev coding discipline for Claude Code ("ship the simplest thing that actually works") - at user scope, so it covers both the first mate and every crewmate it spawns.
+Install or update it yourself anytime with:
+
+```sh
+claude plugin marketplace add DietrichGebert/ponytail
+claude plugin install ponytail@ponytail --scope user
+```
+
 ### Talk to it
 
 ```sh
@@ -138,6 +152,7 @@ Firstmate ships these user-invocable built-in skills, invoked with the slash for
 | `/bearings`        | Generate a concise four-section chat digest from bounded fleet state, including registered remote-home ledgers and measured follow-up for owned contributions; use `/bearings file` to also replace today's dated report in `data/`, and add `include PRs` for live GitHub enrichment |
 | `/updatefirstmate` | Guardedly update the running firstmate and its secondmates - fast-forward, or reconcile a redundant post-squash-merge divergence - then persist and restart every live mate successfully left on the target commit - including already-current homes - with an honest re-read nudge only when restart cannot be proven |
 | `/stow`            | Sweep the session for uncaptured durable knowledge, persist the open work records this session knows are unfiled or now wrong, curate tiered startup memory with decay and cold archival, enforce each home's budget or surface the required decision, cascade to registered second mates, and report what is safe to reset |
+| `/onboarding`      | First-run setup: the agent's name and persona, the two behavior toggles, and a memory vault (new or imported), written to `config/agent.md`; also runs automatically whenever the session-start digest reports `ONBOARDING REQUIRED`. Re-running it edits the existing config instead of starting over |
 
 Bearings invocation examples:
 
