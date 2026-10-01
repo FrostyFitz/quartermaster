@@ -407,24 +407,26 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for the firstmate-specific local test 
 
 Portable shard evidence and coverage rules are in [fm-test-portable-shards.md](fm-test-portable-shards.md).
 
-## Captain Preferences (data/captain.md / data/captain-shared.md)
+## Captain Preferences (memory vault / data/captain.md / data/captain-shared.md)
 
-Domain-local preferences for one captain's fleet live locally in each home's `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.
-Before changing it, inspect the current file and curate the matching bullet in place under the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) tiering and archive contract; add a new bullet only for a genuinely new durable preference.
+Durable per-agent captain preferences now live in the memory vault's entry note (`config/agent.md`'s `vault.entry`) and in `config/agent.md`'s Personal rules section (AGENTS.md's Memory section owns the split); both print in the session-start context digest's VAULT section.
 
-Shared captain preferences that apply across secondmate domains live only in the primary home's optional `data/captain-shared.md`.
+`data/captain.md` is a legacy domain-local file: gitignored, no longer printed by session start or written by routine routing, and left in place only for a home that still has one.
+Before changing a home's existing `data/captain.md`, inspect the current file and curate the matching bullet in place under the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) tiering and archive contract rather than appending to a destination nothing creates fresh.
+
+Shared captain preferences that apply across secondmate domains still live only in the primary home's optional `data/captain-shared.md`, main-authoritative in the primary home and read-only in secondmate homes; this is inert fleet-wide secondmate-sharing plumbing independent of the per-agent vault, and it is also no longer printed by session start.
 `secondmate-provisioning` owns its propagation contract, including the required header, read-only secondmate copies, quarantine diagnostics, and the rollout rule that existing homes trim `data/captain.md` by hand after first propagation rather than deleting private content automatically.
 
 ## Operational learnings (data/learnings.md)
 
-Fleet-local operational facts and gotchas live locally in `data/learnings.md`; it is gitignored and printed after the captain-preference files in the session-start context digest.
+Fleet-local operational facts and gotchas live locally in `data/learnings.md`; it is gitignored and printed in the session-start context digest's CONTEXT section alongside `data/projects.md` and optional `data/secondmates.md` (the VAULT section prints separately).
 The file is created lazily on first learning and follows the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) aging-tier and cold-archive contract: inspect the current file first and curate it instead of appending forever.
 
 There is no shared learnings file by captain decision.
 
 ## Startup memory budget (config/startup-memory-budget)
 
-`config/startup-memory-budget` is the primary-authoritative per-home allowance for the startup prompt-memory surface: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` together.
+`config/startup-memory-budget` is the primary-authoritative per-home allowance for the startup prompt-memory surface: the memory vault's entry note and open-work queue (`config/agent.md`'s `vault.root`), and `data/learnings.md`, together.
 The locked mutable bootstrap path materializes its visible default of `7500` estimated tokens in a primary home when the file is absent.
 
 ### Set and validate the budget
@@ -437,10 +439,10 @@ Malformed, multi-line, symlinked, hardlinked, special, or otherwise unsafe value
 
 ### Accounting and curation
 
-Use `bin/fm-startup-memory-budget.sh read` to validate and print the effective value, or `bin/fm-startup-memory-budget.sh report` to account for the three files.
+Use `bin/fm-startup-memory-budget.sh read` to validate and print the effective value, or `bin/fm-startup-memory-budget.sh report` to account for the vault entry note, the vault queue, and `data/learnings.md`.
 The stable local estimate is `ceil(UTF-8 bytes / 3)` per file, a conservative portable approximation rather than a provider-exact tokenizer.
 
-An inherited `data/captain-shared.md` counts in a secondmate's total but remains primary-owned and read-only there.
+`data/captain-shared.md` is no longer part of the measured total in any home, primary or secondmate, because it stopped being injected at session start; it remains a read-only, primary-owned input for `/stow`'s own curation pass only.
 The internal [`/stow` skill](../.agents/skills/stow/SKILL.md) owns curation and its automatic secondmate cascade, which accounts every home against this same per-home allowance separately rather than against a fleet total.
 
 The helper's header owns exact parsing, publication, and report output mechanics.

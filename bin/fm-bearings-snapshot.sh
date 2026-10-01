@@ -165,8 +165,9 @@ vault_queue projects config/agent.md's vault.root/vault.queue open "- [ ] " chec
   lines: a leading-"**"-stripped item starting "<user_name>:" (case-insensitive) is
   captain, everything else is next, carrying its trailing " - `project`" tag when
   present. state is "absent" with no config/agent.md, "unconfigured" with no
-  vault.root, or "ok"; each bucket is bounded by FM_BEARINGS_VAULT_QUEUE (default
-  20) with an exact omitted count. Never deduped against fleet-sourced rows - the
+  vault.root, "unreadable" when vault.root is set but the queue file is missing
+  or unreadable, or "ok"; each bucket is bounded by FM_BEARINGS_VAULT_QUEUE
+  (default 20) with an exact omitted count. Never deduped against fleet-sourced rows - the
   bearings skill renders these labeled "vault:" so the two sources stay distinct.
 Default gates are selected newest filed first before their bound; undated gates
   retain input order after dated gates.
@@ -407,7 +408,7 @@ if fm_agent_config_read "$CONFIG"; then
           }
       ') || { echo "fm-bearings-snapshot: vault queue projection failed" >&2; exit 1; }
     else
-      VAULT_QUEUE_JSON='{"state":"ok","captain":[],"next":[],"omitted":{"captain":0,"next":0}}'
+      VAULT_QUEUE_JSON='{"state":"unreadable","captain":[],"next":[],"omitted":{"captain":0,"next":0}}'
     fi
   else
     VAULT_QUEUE_JSON='{"state":"unconfigured","captain":[],"next":[],"omitted":{"captain":0,"next":0}}'

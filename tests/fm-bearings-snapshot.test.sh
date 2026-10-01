@@ -1711,6 +1711,24 @@ test_vault_queue_bounds_and_discloses_omitted() {
   pass "vault_queue bounds each bucket and discloses the exact omitted remainder"
 }
 
+test_vault_queue_unreadable_with_missing_queue_file() {
+  local home fakebin out vault
+  home=$(make_home vault-unreadable)
+  vault="$home/vault"
+  mkdir -p "$vault"
+  write_fixture_agent_config "$home/config" "$vault" "Fitz" "Missing.md"
+  fakebin=$(make_fakebin "$home")
+  out=$(run "$home" "$fakebin" --json)
+  printf '%s' "$out" | jq -e '
+    .vault_queue.state == "unreadable"
+      and .vault_queue.captain == []
+      and .vault_queue.next == []
+      and .vault_queue.omitted.captain == 0
+      and .vault_queue.omitted.next == 0
+  ' >/dev/null || fail "vault_queue did not report unreadable with a missing queue file: $out"
+  pass "vault_queue reports unreadable when vault.root is configured but the queue file is missing"
+}
+
 # The Lavish-103 defect, end to end: a COMPLETED scout that raised a decision and
 # then finished (done), whose report body reads like that decision, must surface as
 # a report POINTER only - never in decisions_open. Report prose must never open or
@@ -3520,3 +3538,4 @@ test_vault_queue_absent_without_config
 test_vault_queue_unconfigured_without_vault_root
 test_vault_queue_classifies_captain_and_next
 test_vault_queue_bounds_and_discloses_omitted
+test_vault_queue_unreadable_with_missing_queue_file

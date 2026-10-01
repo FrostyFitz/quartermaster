@@ -428,7 +428,7 @@ The procedure and outcome vocabulary are owned by the [`/updatefirstmate` skill]
 
 ## Restart-proof
 
-Fleet state lives in each task's session-provider backend (tmux by hard default, cmux when selected or auto-detected), no-mistakes run records, status event logs, local markdown under `data/` including `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`, and persistent secondmate homes.
+Fleet state lives in each task's session-provider backend (tmux by hard default, cmux when selected or auto-detected), no-mistakes run records, status event logs, local markdown under `data/` including `data/learnings.md` and, where a home still carries them, legacy `data/captain.md` and `data/captain-shared.md`, the per-agent memory vault at `config/agent.md`'s `vault.root`, and persistent secondmate homes.
 At session start and again on the watcher's bounded liveness cadence, confirmed-dead secondmate agent endpoints are closed and relaunched through the same secondmate spawn path, while ambiguous liveness reads are left untouched to avoid duplicate supervisors.
 Use `/stow` before an intentional reset when the conversation may hold durable knowledge that has not yet been written to disk; after that, the next firstmate session can reconcile and carry on.
 
