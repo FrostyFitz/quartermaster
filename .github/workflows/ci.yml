@@ -1,10 +1,20 @@
 name: CI
 
+# Per-PR cost policy (2026-09-30 Actions-starvation fix, PR stacked on #2):
+# push/pull_request only run the three cheap jobs below (lint-changed,
+# test-coverage, invariants) - a few runner-minutes total. The full suite
+# (both lint partitions, the portable parallel/serial shards, the timing
+# aggregate, and the 10x-billed macOS job) runs only on a manual
+# workflow_dispatch ("Actions -> CI -> Run workflow"), gated by
+# `if: github.event_name == 'workflow_dispatch'` on each of those jobs.
+# Contributors who change bin/ should dispatch it, or run
+# bin/fm-test-run.sh locally; see docs/fm-test-portable-shards.md.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,9 +37,120 @@ concurrency:
 # Each job comment identifies the tier implemented by its executable value.
 
 jobs:
+  # --- Cheap tier: runs on every push and PR. ---
+
+  lint-changed:
+    name: Lint changed files
+    runs-on: ubuntu-latest
+    # Fast tier (see the timeout policy above).
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      # A push lands on main with origin/main already at the new HEAD, so the
+      # ordinary merge-base diff below would see zero changes. Rewind the
+      # local origin/main ref to the pre-push commit (github.event.before) so
+      # fm-lint.sh's changed-file mode diffs against what this push actually
+      # changed. Guarded by cat-file so a missing/placeholder "before" (first
+      # push to a branch, or a rewritten history) just leaves origin/main
+      # alone; fm-lint.sh then safely finds zero changed files and still runs
+      # workflow lint and the backend-purity check.
+      - name: Rewind origin/main for push merge-base
+        if: github.event_name == 'push'
+        run: |
+          set -eu
+          before="${{ github.event.before }}"
+          if git cat-file -e "${before}^{commit}" 2>/dev/null; then
+            git update-ref refs/remotes/origin/main "$before"
+          fi
+      - name: Install pinned ShellCheck
+        run: |
+          set -eu
+          bin/fm-install-shellcheck.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Install pinned actionlint
+        run: |
+          set -eu
+          bin/fm-install-actionlint.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # fm-lint.sh's header documents its mode selection: with no explicit
+      # paths, it lints the full canonical set whenever GITHUB_ACTIONS=true or
+      # CI=true (so the full-suite lint job below stays CI-coverage-complete
+      # regardless of local diff). Clearing both here is fm-lint.sh's own
+      # documented switch into changed-file mode (see tests/fm-lint.test.sh,
+      # which does the same to exercise it): lint only the canonical files
+      # changed since the merge-base with origin/main, plus the always-on
+      # workflow YAML lint and backend-purity check.
+      - name: Lint changed files
+        env:
+          FM_LINT_REQUIRE_BOUNDS: '1'
+          FM_LINT_JOBS: '1'
+          GITHUB_ACTIONS: ''
+          CI: ''
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/fm-lint"
+          bin/fm-lint.sh --telemetry "$RUNNER_TEMP/fm-lint/changed.tsv"
+      - name: Upload lint telemetry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm-lint-telemetry-changed
+          path: |
+            ${{ runner.temp }}/fm-lint/changed.tsv
+            ${{ runner.temp }}/fm-lint/changed.roots.tsv
+          if-no-files-found: warn
+
+  # Deterministic proof that portable parallel shards + portable serial + Herdr
+  # equal the complete tests/*.test.sh inventory with no missing or duplicates,
+  # and that the portable serial CI shards partition that serial lane exactly.
+  test-coverage:
+    name: Test coverage guard
+    runs-on: ubuntu-latest
+    # Fast tier: the coverage guard is a seconds-long local computation.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Prove complete regression partition
+        run: bin/fm-test-run.sh --check-coverage
+
+  invariants:
+    name: Repo invariants
+    runs-on: ubuntu-latest
+    # Fast tier: the invariant checks are seconds-long file comparisons.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compatibility pointers must stay intact
+        run: |
+          set -eu
+          [ ! -L CLAUDE.md ] || { echo "::error::CLAUDE.md must be a real @AGENTS.md pointer file, not a symlink"; exit 1; }
+          tmp=$(mktemp)
+          trap 'rm -f "$tmp"' EXIT
+          printf '%s\n' \
+            '<!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->' \
+            '@AGENTS.md' >"$tmp"
+          cmp -s CLAUDE.md "$tmp" || { echo "::error::CLAUDE.md must be the canonical @AGENTS.md pointer"; exit 1; }
+          [ "$(readlink .claude/skills)" = "../.agents/skills" ] || { echo "::error::.claude/skills must be a symlink to ../.agents/skills"; exit 1; }
+      - name: Personal fleet paths must not be tracked
+        run: |
+          set -eu
+          tracked=$(git ls-files -- data state config projects .no-mistakes)
+          if [ -n "$tracked" ]; then
+            echo "::error::Personal fleet paths are tracked in git:"
+            printf '%s\n' "$tracked"
+            exit 1
+          fi
+
+  # --- Full-suite tier: workflow_dispatch only ("Actions -> CI -> Run
+  # workflow"). Kept intact so the complete suite still runs with one button;
+  # see the cost-policy comment at the top of this file. ---
+
   lint:
     name: Lint ${{ matrix.partition }}
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     strategy:
@@ -73,24 +194,12 @@ jobs:
             ${{ runner.temp }}/fm-lint/partition-${{ matrix.partition }}.roots.tsv
           if-no-files-found: warn
 
-  # Deterministic proof that portable parallel shards + portable serial + Herdr
-  # equal the complete tests/*.test.sh inventory with no missing or duplicates,
-  # and that the portable serial CI shards partition that serial lane exactly.
-  test-coverage:
-    name: Test coverage guard
-    runs-on: ubuntu-latest
-    # Fast tier: the coverage guard is a seconds-long local computation.
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-      - name: Prove complete regression partition
-        run: bin/fm-test-run.sh --check-coverage
-
   # Two duration-balanced portable parallel shards of the Phase 2 proven-isolated
   # set only. Composition owner: bin/fm-test-run.sh (docs/fm-test-portable-shards.md).
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -135,6 +244,7 @@ jobs:
   tests-portable-parallel-2:
     name: Behavior portable parallel 2
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -179,6 +289,7 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     strategy:
@@ -264,7 +375,9 @@ jobs:
       - tests-portable-parallel-1
       - tests-portable-parallel-2
       - tests-portable-serial
-    if: always()
+    # always() so one failed shard above still gets aggregated; still gated to
+    # workflow_dispatch so needs being skipped on push/PR never runs this.
+    if: always() && github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v6
       - name: Download lane timing artifacts
@@ -297,6 +410,7 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch'
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -387,31 +501,3 @@ jobs:
             echo "::error::expected 2 backend adapter-file bash 3.2 regressions, got $backend_count"
             exit 1
           }
-
-  invariants:
-    name: Repo invariants
-    runs-on: ubuntu-latest
-    # Fast tier: the invariant checks are seconds-long file comparisons.
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-      - name: Compatibility pointers must stay intact
-        run: |
-          set -eu
-          [ ! -L CLAUDE.md ] || { echo "::error::CLAUDE.md must be a real @AGENTS.md pointer file, not a symlink"; exit 1; }
-          tmp=$(mktemp)
-          trap 'rm -f "$tmp"' EXIT
-          printf '%s\n' \
-            '<!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->' \
-            '@AGENTS.md' >"$tmp"
-          cmp -s CLAUDE.md "$tmp" || { echo "::error::CLAUDE.md must be the canonical @AGENTS.md pointer"; exit 1; }
-          [ "$(readlink .claude/skills)" = "../.agents/skills" ] || { echo "::error::.claude/skills must be a symlink to ../.agents/skills"; exit 1; }
-      - name: Personal fleet paths must not be tracked
-        run: |
-          set -eu
-          tracked=$(git ls-files -- data state config projects .no-mistakes)
-          if [ -n "$tracked" ]; then
-            echo "::error::Personal fleet paths are tracked in git:"
-            printf '%s\n' "$tracked"
-            exit 1
-          fi
