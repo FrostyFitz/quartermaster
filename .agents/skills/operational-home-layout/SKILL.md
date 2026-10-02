@@ -9,7 +9,7 @@ metadata:
 # Operational home layout
 
 ```
-AGENTS.md            this file (CLAUDE.md imports it, templates/core-rules.md, and config/agent.md)
+AGENTS.md            this file (CLAUDE.md imports it, templates/core-rules.md, config/agent.md, and the optional team/rules.md)
 templates/core-rules.md  the locked universal memory and working rules, imported by CLAUDE.md
 templates/agent.md   the config/agent.md schema template, filled in by onboarding
 templates/persona/   tone-preset and toggle text copied into config/agent.md by onboarding
