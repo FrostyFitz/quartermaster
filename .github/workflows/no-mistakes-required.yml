@@ -38,6 +38,20 @@ jobs:
           sparse-checkout: |
             bin/fm-wait-for-pr-attestation.py
           sparse-checkout-cone-mode: false
+      # The wait script above only exists on base refs at or after this PR's
+      # own merge, so a synchronize/reopened run on an earlier base (e.g. this
+      # PR itself before merge, or any repo mid-upgrade) would otherwise hard
+      # fail here on a missing file. Skip the wait gracefully in that case.
+      - name: Check whether the wait script exists on the base ref
+        id: wait-script
+        if: github.event.action == 'synchronize' || github.event.action == 'reopened'
+        run: |
+          if [ -f bin/fm-wait-for-pr-attestation.py ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::bin/fm-wait-for-pr-attestation.py is not on the base ref yet; skipping the attestation wait"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       # A synchronize/reopened run can start before the no-mistakes PR step
       # has rewritten the PR body's attestation for the new push, so the gate
       # below would read the previous head's attestation and fail even when
@@ -45,7 +59,7 @@ jobs:
       # window to catch up before judging it; see the script for the full
       # rationale and why this never fails the job on its own.
       - name: Wait for pipeline attestation to catch up to the current head
-        if: github.event.action == 'synchronize' || github.event.action == 'reopened'
+        if: (github.event.action == 'synchronize' || github.event.action == 'reopened') && steps.wait-script.outputs.exists == 'true'
         timeout-minutes: 5
         env:
           GITHUB_TOKEN: ${{ github.token }}
