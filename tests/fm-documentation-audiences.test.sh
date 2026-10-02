@@ -135,7 +135,28 @@ MD
   pass "local links resolve while dates, versions, commands, and incident prose remain semantically reviewed"
 }
 
+test_team_dir_out_of_scope() {
+  local repo="$TMP_ROOT/team-fixture"
+  mkdir -p "$repo/docs" "$repo/team"
+  git -C "$repo" init -q
+  printf '%s\n' '[Setup](docs/setup.md) [Policy](docs/policy.md)' > "$repo/README.md"
+  printf '%s\n' '# Setup' > "$repo/docs/setup.md"
+  printf '%s\n' '# Policy' > "$repo/docs/policy.md"
+  printf '%s\n' '# Evidence' > "$repo/docs/evidence.md"
+  printf '%s\n' '# Team rules' > "$repo/team/rules.md"
+  write_fixture_inventory "$repo"
+  git -C "$repo" add README.md docs team
+  "$CHECK" --root "$repo" >/dev/null \
+    || fail "unclassified team/ prose from a private team copy failed the inventory check"
+
+  printf '%s\n' '# Stray' > "$repo/docs/stray.md"
+  git -C "$repo" add docs/stray.md
+  run_expect_failure "unclassified: docs/stray.md" "$CHECK" --root "$repo"
+  pass "team/ prose is out of inventory scope while other unclassified prose still fails"
+}
+
 test_repository_inventory_passes
 test_duplicate_and_setup_classification_fail
 test_required_pointer_fails
 test_local_links_and_no_keyword_heuristic
+test_team_dir_out_of_scope

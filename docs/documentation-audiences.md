@@ -3,6 +3,7 @@
 [`documentation-audiences.json`](documentation-audiences.json) is the machine-consumed classification owner for every maintained prose surface.
 `bin/fm-doc-audience-check.sh` validates exact inventory coverage, README setup routing, required owner pointers, and local link targets.
 Audience metadata is centralized there rather than copied into front matter on every page.
+Files under `team/` are out of scope: they belong to private team copies (see the README's "Rolling out to a team"), which add them without editing this inventory.
 
 The audience classes have one placement purpose each:
 
