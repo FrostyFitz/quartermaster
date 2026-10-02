@@ -171,7 +171,9 @@ def validate(root: Path, inventory_path: Path) -> tuple[int, int]:
     if duplicates:
         fail("surfaces classified more than once: " + ", ".join(duplicates))
 
-    tracked = set(git_tracked(root, patterns))
+    # team/ belongs to private team copies (README.md "Rolling out to a team"),
+    # never to this inventory, so its prose is out of scope here.
+    tracked = {p for p in git_tracked(root, patterns) if not p.startswith("team/")}
     classified = set(paths)
     missing = sorted(tracked - classified)
     extra = sorted(classified - tracked)
