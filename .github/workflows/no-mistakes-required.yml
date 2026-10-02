@@ -27,6 +27,46 @@ jobs:
       github.event.pull_request.user.login != 'github-actions[bot]' &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
+      # Checked out at the trusted base ref, never the PR's own head: a
+      # pull_request-triggered job must not execute a fork's code, and the
+      # default checkout ref for this event is the PR's merge commit.
+      - uses: actions/checkout@v6
+        if: github.event.action == 'synchronize' || github.event.action == 'reopened'
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            bin/fm-wait-for-pr-attestation.py
+          sparse-checkout-cone-mode: false
+      # The wait script above only exists on base refs at or after this PR's
+      # own merge, so a synchronize/reopened run on an earlier base (e.g. this
+      # PR itself before merge, or any repo mid-upgrade) would otherwise hard
+      # fail here on a missing file. Skip the wait gracefully in that case.
+      - name: Check whether the wait script exists on the base ref
+        id: wait-script
+        if: github.event.action == 'synchronize' || github.event.action == 'reopened'
+        run: |
+          if [ -f bin/fm-wait-for-pr-attestation.py ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::bin/fm-wait-for-pr-attestation.py is not on the base ref yet; skipping the attestation wait"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      # A synchronize/reopened run can start before the no-mistakes PR step
+      # has rewritten the PR body's attestation for the new push, so the gate
+      # below would read the previous head's attestation and fail even when
+      # the pipeline did everything right (#12). Give the body a short bounded
+      # window to catch up before judging it; see the script for the full
+      # rationale and why this never fails the job on its own.
+      - name: Wait for pipeline attestation to catch up to the current head
+        if: (github.event.action == 'synchronize' || github.event.action == 'reopened') && steps.wait-script.outputs.exists == 'true'
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 bin/fm-wait-for-pr-attestation.py
       - name: Verify no-mistakes signature and pipeline attestation
         uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@f6441c96c352a18b9cadcaef6b6c7017e9ac3970 # v1.80.1
         with:
