@@ -639,6 +639,7 @@ An absent or blank file changes nothing, while a present path that is not a read
 The text is static and never executed or expanded; secondmate charters never take it, and the file is local to each home rather than part of secondmate inherited configuration.
 
 `bin/fm-brief.sh`'s header owns the placement rule and its safety argument.
+For supervisor-level team-wide instructions in a private team copy, see the optional `team/rules.md` boot import described in README.md's "Rolling out to a team".
 
 ## Worker launch environment (config/launch-env-allowlist)
 
