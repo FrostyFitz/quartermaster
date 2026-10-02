@@ -191,9 +191,135 @@ test_wait_script_times_out_without_failing() {
   pass "wait script gives up quietly on a genuinely stale attestation and lets the gate judge it"
 }
 
+# --- .github/workflows/no-mistakes-required.yml gating for a missing
+# base-ref script (round-1 review fix for #12's bootstrap case) ---
+#
+# On synchronize/reopened, the wait script is sparse-checked-out from the
+# trusted base ref, which does not have bin/fm-wait-for-pr-attestation.py
+# before this PR itself merges (or on any repo mid-upgrade). The workflow
+# must detect that and skip the wait step instead of hard-failing the job.
+# These tests parse the real workflow YAML and resolve its "if" expressions
+# against simulated contexts, and run the exact extracted shell command
+# against a real filesystem fixture, so they exercise what GitHub Actions
+# would actually do rather than grepping the YAML text.
+command -v ruby >/dev/null 2>&1 \
+  || fail "ruby is required to parse .github/workflows/no-mistakes-required.yml as YAML"
+NMR_WORKFLOW="$ROOT/.github/workflows/no-mistakes-required.yml"
+
+# Print the named step's `run:` script from the "check" job.
+nmr_step_run() {
+  ruby -ryaml -e '
+steps = YAML.load_file(ARGV[0]).fetch("jobs").fetch("check").fetch("steps")
+step = steps.find { |s| s["name"] == ARGV[1] }
+abort "no such step: #{ARGV[1]}" unless step
+puts step.fetch("run")
+' "$NMR_WORKFLOW" "$1"
+}
+
+# Print the named step's `if:` condition from the "check" job ("" if none).
+nmr_step_if() {
+  ruby -ryaml -e '
+steps = YAML.load_file(ARGV[0]).fetch("jobs").fetch("check").fetch("steps")
+step = steps.find { |s| s["name"] == ARGV[1] }
+abort "no such step: #{ARGV[1]}" unless step
+puts step["if"] || ""
+' "$NMR_WORKFLOW" "$1"
+}
+
+# Resolve a step-if expression (this workflow's "&&"/"||"/"==" subset only)
+# against a simulated context, printed as "true"/"false".
+nmr_resolve_if() {  # <expression> <key=value>...
+  local expr=$1
+  shift
+  ruby -e '
+expr = ARGV[0]
+context = {}
+ARGV[1..-1].each { |kv| k, v = kv.split("=", 2); context[k] = v }
+
+split_top = lambda do |s, op|
+  depth = 0; parts = []; cur = ""
+  i = 0
+  while i < s.length
+    c = s[i]
+    depth += 1 if c == "("
+    depth -= 1 if c == ")"
+    if depth == 0 && s[i, op.length] == op
+      parts << cur; cur = ""; i += op.length; next
+    end
+    cur += c; i += 1
+  end
+  parts << cur
+  parts
+end
+
+resolve = lambda do |token|
+  token = token.strip
+  next token[1..-2] if token.start_with?("\x27") && token.end_with?("\x27")
+  raise "unresolvable context reference: #{token}" unless context.key?(token)
+  context.fetch(token)
+end
+
+eval_cmp = lambda do |e|
+  left, right = e.split("==", 2)
+  resolve.call(left) == resolve.call(right)
+end
+
+eval_conj = lambda do |e|
+  e = e.strip
+  e = e[1..-2] if e.start_with?("(") && e.end_with?(")")
+  e.split("||").any? { |t| eval_cmp.call(t) }
+end
+
+result = split_top.call(expr, "&&").all? { |c| eval_conj.call(c) }
+puts result ? "true" : "false"
+' "$expr" "$@"
+}
+
+test_check_step_detects_missing_script_without_failing() {
+  local tmp rc out gh_output
+  tmp=$(fm_test_tmproot fm-nmr-missing-script)
+  mkdir -p "$tmp/missing" "$tmp/present/bin"
+  : > "$tmp/present/bin/fm-wait-for-pr-attestation.py"
+
+  gh_output="$tmp/missing-output"
+  : > "$gh_output"
+  rc=0
+  out=$(cd "$tmp/missing" && GITHUB_OUTPUT="$gh_output" bash -c "$(nmr_step_run 'Check whether the wait script exists on the base ref')" 2>&1) || rc=$?
+  expect_code 0 "$rc" "check-step script must never fail the job when the base ref lacks the wait script"
+  assert_contains "$out" "is not on the base ref yet; skipping the attestation wait" \
+    "check-step script did not log a notice for the missing wait script"
+  assert_contains "$(cat "$gh_output")" "exists=false" \
+    "check-step script did not report exists=false for a missing wait script"
+
+  gh_output="$tmp/present-output"
+  : > "$gh_output"
+  rc=0
+  out=$(cd "$tmp/present" && GITHUB_OUTPUT="$gh_output" bash -c "$(nmr_step_run 'Check whether the wait script exists on the base ref')" 2>&1) || rc=$?
+  expect_code 0 "$rc" "check-step script failed even though the wait script is present"
+  assert_contains "$(cat "$gh_output")" "exists=true" \
+    "check-step script did not report exists=true for a present wait script"
+  pass "check-step script detects a missing base-ref wait script and never fails the job"
+}
+
+test_wait_step_is_gated_on_the_check_steps_output() {
+  local expr
+  expr=$(nmr_step_if 'Wait for pipeline attestation to catch up to the current head')
+  [ -n "$expr" ] || fail "wait step has no if condition guarding it"
+
+  [ "$(nmr_resolve_if "$expr" "github.event.action=synchronize" "steps.wait-script.outputs.exists=true")" = "true" ] \
+    || fail "wait step should run on synchronize once the check step reports the script exists"
+  [ "$(nmr_resolve_if "$expr" "github.event.action=synchronize" "steps.wait-script.outputs.exists=false")" = "false" ] \
+    || fail "wait step must be skipped when the check step reports the base ref lacks the script"
+  [ "$(nmr_resolve_if "$expr" "github.event.action=opened" "steps.wait-script.outputs.exists=true")" = "false" ] \
+    || fail "wait step must not run on opened/edited events"
+  pass "wait step's if condition is gated on the check step's exists output, not only the event action"
+}
+
 fetch_shared_verifier
 test_matching_head_and_completed_steps_pass
 test_mismatched_head_fails_with_both_shas
 test_missing_head_fails
 test_wait_script_returns_once_attestation_catches_up
 test_wait_script_times_out_without_failing
+test_check_step_detects_missing_script_without_failing
+test_wait_step_is_gated_on_the_check_steps_output
