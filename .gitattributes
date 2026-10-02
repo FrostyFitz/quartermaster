@@ -1,2 +1,8 @@
+# Text files use LF line endings on every supported platform; a clone made with
+# Windows Git and core.autocrlf=true otherwise gives CRLF endings to scripts whose
+# shebang line then fails to parse. Git's own binary heuristic still applies, so
+# binary files are untouched.
+* text=auto eol=lf
+
 # Bash parses shell scripts with LF line endings on every supported platform.
 *.sh text eol=lf
