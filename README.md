@@ -62,6 +62,16 @@ claude
 AGENTS.md takes over from there.
 Claude Code uses a tracked Stop hook for tokenless watcher re-arm and rewake, and has a verified turn-end guard path when launched with its documented setup.
 
+### Windows (WSL2)
+
+Native Windows is not a supported path, so run quartermaster entirely inside a WSL2 distro.
+Install Claude Code, git, gh and tmux inside the WSL distro itself, not as Windows-side tools; a Windows-side `claude.exe` pointed at the repo does not work.
+Clone into the Linux home (`~`), not `/mnt/c`, because the Windows drive is slow for git and worktree work and does not preserve file modes, and custom check scripts must keep mode `0700`.
+A memory vault may still live on the Windows side, such as an Obsidian vault reached through its `/mnt/c/Users/...` path; onboarding's vault permission rule follows that same `/mnt/c` form.
+WSL may shut down the Linux VM after the last terminal closes, which kills running workers, so keep a terminal open or configure keep-alive in `.wslconfig`.
+Opening a browser for Lavish boards or browser automation may need a bridge such as `wslview` or WSLg.
+WSL2 support is untested on a real Windows machine so far.
+
 ### First run
 
 Claude Code waits for you to speak first, so after launching `claude`, say hi and onboarding starts.
