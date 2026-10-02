@@ -171,6 +171,16 @@ Quartermaster's skills live in two separate places with different audiences:
   Today that is `skills/stow`, a generic session-knowledge-sweep skill that routes findings by explicit instruction first, then existing local conventions, then a private `.stow-notes.md` fallback, and curates tiered entries through decay, local archival, and user-approved on-demand offload proposals.
   It intentionally shares no code with the quartermaster-internal `.agents/skills/stow` it is named after, so the two can evolve independently.
 
+## Rolling out to a team
+
+Make a private copy: bare clone this repo and `git push --mirror` into a new private repo in your org.
+Forks of a public repo cannot be private, so a mirror push is the supported path.
+Add `team/rules.md` to that private copy for supervisor-level team rules; `CLAUDE.md` imports it when present and skips it silently otherwise.
+Optionally add `team/brief-include.md` and have each teammate symlink their local `config/brief-include.md` to `../team/brief-include.md` for worker-level instructions.
+Optionally add team skills as new folders under `.agents/skills/` with team-specific names.
+Only add files to the private copy; never edit upstream ones, so upstream updates keep merging cleanly.
+Pull updates with an `upstream` remote and `git merge upstream/main`.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) - maintainer architecture for the crew, supervision, worktrees, secondmates, and project modes.
