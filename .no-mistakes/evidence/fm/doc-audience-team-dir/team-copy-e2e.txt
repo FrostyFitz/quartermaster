@@ -1,0 +1,16 @@
+$ # scratch team copy cloned from 0927e88; add only team/ files (no upstream edits)
+$ git status --short
+A  team/README.md
+A  team/brief-include.md
+A  team/rules.md
+$ bin/fm-doc-audience-check.sh   # fixed (0927e88)
+fm-doc-audience-check: ok surfaces=101 local_links=452
+exit=0
+
+$ bash old-check.sh --root .   # base 77865f7 script, same team copy
+fm-doc-audience-check: unclassified: team/README.md, team/brief-include.md, team/rules.md
+exit=1
+
+$ # unclassified prose outside team/ still fails with the fix
+fm-doc-audience-check: unclassified: docs/stray-team-note.md
+exit=1
