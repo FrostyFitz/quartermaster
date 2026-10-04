@@ -542,19 +542,29 @@ retire_successor() {
   "$SCRIPT_DIR/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
 }
 
-# Hand the close to main: stop the successor cycle, print the close, why, and
-# any further "supervision-host:" lines, and exit. retire_successor's --stop
-# normally republishes downtime itself (the stopped watcher's own exit trap),
-# but a call reached before this turn ever ran start_successor (SUCCESSOR_PID
-# still empty) skips that, and a handling handoff this turn consumed can be
-# left on the recovery marker with nothing to hand it back: the re-arm owner
-# (autoarm_commit in bin/fm-claude-stop-autoarm.sh) only commits a rewake
-# while the marker reads downtime, so this hand-back guard belongs on every
-# path here, not only the main-only pass-through above.
+# Hand back the downtime SUCCESSOR_GENERATION's handling handoff holds, for
+# every exit path that stops owning this close without a live successor left
+# to republish it itself (retire_successor's --stop normally does that
+# through the stopped watcher's own exit trap, but a path reached before this
+# turn ever ran start_successor, or one that lost ownership between turns,
+# skips that): the re-arm owner (autoarm_commit in
+# bin/fm-claude-stop-autoarm.sh) only commits a rewake while the marker reads
+# downtime. A marker whose generation already moved on to another owner is
+# left untouched (compare-and-set, fm_recovery_marker_restore_downtime).
+restore_own_downtime() {
+  [ -n "${SUCCESSOR_GENERATION:-}" ] || return 0
+  fm_recovery_marker_restore_downtime "$STATE/.watcher-down" "$SUCCESSOR_GENERATION" >/dev/null 2>&1
+  case $? in
+    0|3) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Hand the close to main: stop the successor cycle, restore its downtime,
+# print the close, why, and any further "supervision-host:" lines, and exit.
 exit_to_main() {  # <why> [further lines]
   retire_successor
-  if [ -n "${SUCCESSOR_GENERATION:-}" ] \
-    && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+  if ! restore_own_downtime; then
     log_line "pass-through	downtime-unrestored	$1"
     exit 1
   fi
@@ -610,6 +620,10 @@ turn_outcome_lookup_warning() {
 }
 
 stand_down() {  # <why>
+  if ! restore_own_downtime; then
+    log_line "stand-down	downtime-unrestored	$1"
+    exit 1
+  fi
   log_line "stand-down	$1"
   emit "supervision-host stood down: $1"
   exit 0
@@ -1090,8 +1104,7 @@ while :; do
     # Main handles this close after all, so hand back the downtime the handoff
     # above consumed: the re-arm owner delivers the close only while the
     # recovery marker reads downtime (leave_successor_for_main).
-    if [ -n "$SUCCESSOR_GENERATION" ] \
-      && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+    if ! restore_own_downtime; then
       log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
       exit 1
     fi

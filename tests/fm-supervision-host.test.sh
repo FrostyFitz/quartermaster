@@ -979,6 +979,46 @@ test_captain_outcome_after_a_handling_handoff_restores_downtime() {
   pass "host: a captain-outcome hand-back after a handling handoff still restores the recovery marker to downtime"
 }
 
+# fm_recovery_marker_restore_downtime (bin/fm-wake-lib.sh) is the
+# compare-and-set restore_own_downtime (bin/fm-supervision-host.sh) uses from
+# every exit path that hands back a close without a live successor to
+# republish downtime itself: it must restore exactly the generation it was
+# told to restore, and refuse any other generation already on the marker.
+test_recovery_marker_restore_downtime_restores_its_own_handling_token() {
+  local home marker rc
+  home="$TMP_ROOT/restore-downtime-own"
+  mkdir -p "$home/state"
+  marker="$home/state/.watcher-down"
+  printf 'announced:handling:my-own-gen\n' > "$marker"
+  FM_HOME="$home" bash -c '
+    . "$1"
+    fm_recovery_marker_restore_downtime "$2" "$3"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$marker" "my-own-gen"
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "restore-downtime: its own generation must be restored (rc=0), got $rc"
+  [ "$(cat "$marker")" = "announced:downtime:my-own-gen" ] \
+    || fail "restore-downtime: its own handling token must become downtime holding the same generation and announcement status: $(cat "$marker")"
+  pass "wake-lib: fm_recovery_marker_restore_downtime restores downtime for its own handling token"
+}
+
+test_recovery_marker_restore_downtime_leaves_a_foreign_generation_untouched() {
+  local home marker before rc
+  home="$TMP_ROOT/restore-downtime-foreign"
+  mkdir -p "$home/state"
+  marker="$home/state/.watcher-down"
+  printf 'pending:handling:foreign-gen\n' > "$marker"
+  before=$(cat "$marker")
+  FM_HOME="$home" bash -c '
+    . "$1"
+    fm_recovery_marker_restore_downtime "$2" "$3"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$marker" "my-own-gen"
+  rc=$?
+  [ "$rc" -eq 3 ] || fail "restore-downtime: a generation that is not the marker's current one must be refused (rc=3), got $rc"
+  [ "$(cat "$marker")" = "$before" ] \
+    || fail "restore-downtime: a foreign generation's token must not be overwritten: was $before, now $(cat "$marker")"
+  pass "wake-lib: fm_recovery_marker_restore_downtime leaves a foreign generation's handling token untouched"
+}
+
 test_captain_leaving_mid_turn_keeps_its_captain_outcome_for_the_return() {
   local home drained
   home=$(make_home attended-go-away attended)
@@ -2674,6 +2714,8 @@ test_branch_outcomes_keep_a_drain_presented_outcome_across_an_index_repair
 test_attended_routine_wake_is_handled_on_the_engine_and_stays_off_main
 test_attended_captain_outcome_reaches_main_through_branch_outcomes
 test_captain_outcome_after_a_handling_handoff_restores_downtime
+test_recovery_marker_restore_downtime_restores_its_own_handling_token
+test_recovery_marker_restore_downtime_leaves_a_foreign_generation_untouched
 test_captain_leaving_mid_turn_keeps_its_captain_outcome_for_the_return
 test_quiet_record_without_its_daemon_is_a_present_captain
 test_attended_main_only_close_passes_straight_to_main

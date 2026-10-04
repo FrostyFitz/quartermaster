@@ -868,6 +868,43 @@ _fm_recovery_marker_ack() {
   fm_lock_release "$lock"
 }
 
+# Compare-and-set: restore downtime for exactly the handling token
+# <expected_generation> itself published, holding that token's own
+# announcement status, and touching nothing when the marker has moved on -
+# acked, already downtime, or a different generation (another owner, who
+# must not be overwritten). Returns 3 for that untouched case, distinct from
+# a real lock/write failure (1), so a caller can tell "not ours anymore" from
+# "the restore itself failed".
+_fm_recovery_marker_restore_downtime() {
+  local marker=$1 expected_generation=$2 lock line status
+  [ -n "$expected_generation" ] || return 2
+  lock="${marker}.lock"
+  fm_lock_acquire_wait "$lock" || return 1
+  if ! fm_recovery_marker_read "$marker" \
+    || [ "${FM_RECOVERY_MARKER_TOKEN##*:}" != "$expected_generation" ]; then
+    fm_lock_release "$lock"
+    return 3
+  fi
+  line=$FM_RECOVERY_MARKER_TOKEN
+  case "$line" in
+    pending:handling:*) status=pending ;;
+    announced:handling:*) status=announced ;;
+    *)
+      fm_lock_release "$lock"
+      return 0
+      ;;
+  esac
+  if ! _fm_recovery_marker_write_locked "$marker" downtime "$expected_generation" "$status"; then
+    fm_lock_release "$lock"
+    return 1
+  fi
+  fm_lock_release "$lock"
+}
+
+fm_recovery_marker_restore_downtime() {
+  _fm_recovery_marker_restore_downtime "$1" "${2:-}"
+}
+
 _fm_recovery_marker_arm_check() {
   local marker=$1 lock line quarantine
   FM_RECOVERY_MARKER_ACTION='none'
