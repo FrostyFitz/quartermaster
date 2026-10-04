@@ -543,9 +543,21 @@ retire_successor() {
 }
 
 # Hand the close to main: stop the successor cycle, print the close, why, and
-# any further "supervision-host:" lines, and exit.
+# any further "supervision-host:" lines, and exit. retire_successor's --stop
+# normally republishes downtime itself (the stopped watcher's own exit trap),
+# but a call reached before this turn ever ran start_successor (SUCCESSOR_PID
+# still empty) skips that, and a handling handoff this turn consumed can be
+# left on the recovery marker with nothing to hand it back: the re-arm owner
+# (autoarm_commit in bin/fm-claude-stop-autoarm.sh) only commits a rewake
+# while the marker reads downtime, so this hand-back guard belongs on every
+# path here, not only the main-only pass-through above.
 exit_to_main() {  # <why> [further lines]
   retire_successor
+  if [ -n "${SUCCESSOR_GENERATION:-}" ] \
+    && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+    log_line "pass-through	downtime-unrestored	$1"
+    exit 1
+  fi
   log_line "to-main	$1"
   emit "supervision-host: $1" "${2:-}"
   exit 0
