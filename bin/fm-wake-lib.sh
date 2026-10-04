@@ -868,13 +868,14 @@ _fm_recovery_marker_ack() {
   fm_lock_release "$lock"
 }
 
-# Compare-and-set: restore downtime for exactly the handling token
-# <expected_generation> itself published, holding that token's own
-# announcement status, and touching nothing when the marker has moved on -
-# acked, already downtime, or a different generation (another owner, who
-# must not be overwritten). Returns 3 for that untouched case, distinct from
-# a real lock/write failure (1), so a caller can tell "not ours anymore" from
-# "the restore itself failed".
+# Compare-and-set: restore pending downtime for exactly the handling token
+# <expected_generation> itself published - an interrupted handling turn gets
+# exactly one recovery presentation (docs/watcher-continuity.md "Generation
+# reuse") - and touch nothing when the marker has moved on: acked, already
+# downtime, or a different generation (another owner, who must not be
+# overwritten). Returns 3 for that untouched case, distinct from a real
+# lock/write failure (1), so a caller can tell "not ours anymore" from "the
+# restore itself failed".
 _fm_recovery_marker_restore_downtime() {
   local marker=$1 expected_generation=$2 lock line status
   [ -n "$expected_generation" ] || return 2
@@ -887,8 +888,7 @@ _fm_recovery_marker_restore_downtime() {
   fi
   line=$FM_RECOVERY_MARKER_TOKEN
   case "$line" in
-    pending:handling:*) status=pending ;;
-    announced:handling:*) status=announced ;;
+    pending:handling:*|announced:handling:*) status=pending ;;
     *)
       fm_lock_release "$lock"
       return 0

@@ -996,8 +996,8 @@ test_recovery_marker_restore_downtime_restores_its_own_handling_token() {
   ' _ "$ROOT/bin/fm-wake-lib.sh" "$marker" "my-own-gen"
   rc=$?
   [ "$rc" -eq 0 ] || fail "restore-downtime: its own generation must be restored (rc=0), got $rc"
-  [ "$(cat "$marker")" = "announced:downtime:my-own-gen" ] \
-    || fail "restore-downtime: its own handling token must become downtime holding the same generation and announcement status: $(cat "$marker")"
+  [ "$(cat "$marker")" = "pending:downtime:my-own-gen" ] \
+    || fail "restore-downtime: an interrupted handling turn must get exactly one pending recovery presentation, same generation: $(cat "$marker")"
   pass "wake-lib: fm_recovery_marker_restore_downtime restores downtime for its own handling token"
 }
 
