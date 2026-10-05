@@ -920,6 +920,105 @@ test_attended_captain_outcome_reaches_main_through_branch_outcomes() {
   pass "host: an attended captain outcome wakes main once and stays in its drain until main acknowledges it"
 }
 
+# The live failure this guards (2026-10-04): a turn's handling handoff
+# (start_successor + --handling-delivered) left the recovery marker on
+# handling, and the captain-outcome hand-back at its turn's end
+# (turn_captain_seqs/exit_to_main) is a different call site from the
+# main-only pass-through PR #5961 fixed, so the marker was never handed back
+# before main's re-arm owner (autoarm_commit in bin/fm-claude-stop-autoarm.sh)
+# needed it to read downtime. Reuse the stale-watcher-lock fixture from
+# test_first_cycle_status_streams_and_owner_options_reach_it to produce a
+# genuine pending downtime episode, so the next cycle's own successor
+# announces it (SUCCESSOR_GENERATION) exactly as an ordinary handling handoff
+# does - then drive a captain-outcome turn through it.
+test_captain_outcome_after_a_handling_handoff_restores_downtime() {
+  local home stale fresh generation predecessor
+  home=$(make_home captain-handoff attended)
+
+  # A watcher a dead arm left behind, holding this home's watcher lock -
+  # before this home's host ever runs, so there is no prior cycle to
+  # disturb. Killing it leaves a stale lock a restart must clear, which
+  # publishes the genuine pending downtime episode below.
+  FM_HOME="$home" PATH="$home/fakebin:$PATH" perl -e 'setpgrp(0, 0); exec @ARGV' "$ROOT/bin/fm-watch-arm.sh" \
+    > "$home/stale-arm.out" 2>&1 &
+  wait_until 150 grep -qs '^watcher: started pid=' "$home/stale-arm.out" \
+    || fail "handoff: the fixture arm never started its watcher: $(cat "$home/stale-arm.out")"
+  wait_until 150 watcher_live "$home" || fail "handoff: the fixture watcher never started"
+  kill -KILL "$!" 2>/dev/null || true
+  wait "$!" 2>/dev/null || true
+  stale=$(cat "$home/state/.watch.lock/pid")
+  start_host "$home" --restart
+  wait_until 150 sh -c '[ -s "$1/host.out" ] || [ -s "$1/host.rc" ]' _ "$home" \
+    || fail "handoff: the restarting host never reported its cycle: $(cat "$home/host.out" "$home/claude.err" 2>/dev/null)"
+  wait_until 100 sh -c '! kill -0 "$1" 2>/dev/null' _ "$stale" || fail "handoff: --restart left the old watcher running"
+  wait_until 200 host_exited "$home" || append_status "$home" 'resurface warm-up' 'done'
+  wait_until 200 host_exited "$home" || fail "handoff: the restarting host's resurface close did not reach main: $(cat "$home/host.out")"
+  assert_re '^(signal: .*demo\.status|check: rearm-resurface)$' "$home/host.out" "handoff fixture: the restarting host's close must reach main"
+
+  # That close left an unacknowledged downtime episode (independent of the
+  # wake queue a drain would acknowledge): a host the owner starts as the
+  # closed arm's successor takes it over as a handling successor, exactly
+  # as an ordinary mid-turn start_successor call does.
+  generation=$(sed -n 's/^[a-z]*:[a-z]*://p' "$home/state/.watcher-down")
+  [ -n "$generation" ] || fail "handoff fixture: the close left no downtime episode: $(cat "$home/state/.watcher-down")"
+  predecessor=$(sed -n '1p' "$home/claude-pids")
+  rm -f "$home/host.out" "$home/host.rc"
+  echo captain > "$home/stub-mode"
+  FM_WATCH_PREDECESSOR_ARM_PID=$predecessor start_host "$home" --restart
+  wait_until 150 grep -qs '^watcher: started pid=' "$home/host.out" || fail "handoff: the successor host never reported its cycle"
+  assert_re "^watcher: started pid=[0-9]+ \\(beacon fresh\\) recovery-generation=$generation\$" "$home/host.out" \
+    "handoff fixture: the owner's predecessor must make this cycle a handling successor of the pending generation"
+
+  append_status "$home" 'ready for review'
+  wait_until 250 host_exited "$home" || fail "handoff: the captain outcome did not wake main: $(cat "$home/state/.supervision-host.log")"
+  expect_code 0 "$(cat "$home/host.rc")" "handoff: a captain-outcome exit must exit 0"
+  assert_re '^supervision-host: branch-outcome: .*\(store rows 1\); run bin/fm-wake-drain.sh' "$home/host.out" \
+    "handoff: the exit must name the captain outcome's store row"
+  [ "$(marker_kind "$home")" = downtime ] \
+    || fail "handoff: the handling handoff left the recovery marker on handling, so main's re-arm owner could not deliver the close: $(cat "$home/state/.watcher-down")"
+  pass "host: a captain-outcome hand-back after a handling handoff still restores the recovery marker to downtime"
+}
+
+# fm_recovery_marker_restore_downtime (bin/fm-wake-lib.sh) is the
+# compare-and-set restore_own_downtime (bin/fm-supervision-host.sh) uses from
+# every exit path that hands back a close without a live successor to
+# republish downtime itself: it must restore exactly the generation it was
+# told to restore, and refuse any other generation already on the marker.
+test_recovery_marker_restore_downtime_restores_its_own_handling_token() {
+  local home marker rc
+  home="$TMP_ROOT/restore-downtime-own"
+  mkdir -p "$home/state"
+  marker="$home/state/.watcher-down"
+  printf 'announced:handling:my-own-gen\n' > "$marker"
+  FM_HOME="$home" bash -c '
+    . "$1"
+    fm_recovery_marker_restore_downtime "$2" "$3"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$marker" "my-own-gen"
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "restore-downtime: its own generation must be restored (rc=0), got $rc"
+  [ "$(cat "$marker")" = "pending:downtime:my-own-gen" ] \
+    || fail "restore-downtime: an interrupted handling turn must get exactly one pending recovery presentation, same generation: $(cat "$marker")"
+  pass "wake-lib: fm_recovery_marker_restore_downtime restores downtime for its own handling token"
+}
+
+test_recovery_marker_restore_downtime_leaves_a_foreign_generation_untouched() {
+  local home marker before rc
+  home="$TMP_ROOT/restore-downtime-foreign"
+  mkdir -p "$home/state"
+  marker="$home/state/.watcher-down"
+  printf 'pending:handling:foreign-gen\n' > "$marker"
+  before=$(cat "$marker")
+  FM_HOME="$home" bash -c '
+    . "$1"
+    fm_recovery_marker_restore_downtime "$2" "$3"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$marker" "my-own-gen"
+  rc=$?
+  [ "$rc" -eq 3 ] || fail "restore-downtime: a generation that is not the marker's current one must be refused (rc=3), got $rc"
+  [ "$(cat "$marker")" = "$before" ] \
+    || fail "restore-downtime: a foreign generation's token must not be overwritten: was $before, now $(cat "$marker")"
+  pass "wake-lib: fm_recovery_marker_restore_downtime leaves a foreign generation's handling token untouched"
+}
+
 test_captain_leaving_mid_turn_keeps_its_captain_outcome_for_the_return() {
   local home drained
   home=$(make_home attended-go-away attended)
@@ -2614,6 +2713,9 @@ test_branch_outcomes_keep_a_drain_presented_outcome_across_a_switch_to_pi
 test_branch_outcomes_keep_a_drain_presented_outcome_across_an_index_repair
 test_attended_routine_wake_is_handled_on_the_engine_and_stays_off_main
 test_attended_captain_outcome_reaches_main_through_branch_outcomes
+test_captain_outcome_after_a_handling_handoff_restores_downtime
+test_recovery_marker_restore_downtime_restores_its_own_handling_token
+test_recovery_marker_restore_downtime_leaves_a_foreign_generation_untouched
 test_captain_leaving_mid_turn_keeps_its_captain_outcome_for_the_return
 test_quiet_record_without_its_daemon_is_a_present_captain
 test_attended_main_only_close_passes_straight_to_main
