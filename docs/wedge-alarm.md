@@ -12,12 +12,13 @@ It lists channel directives, one per non-empty, non-comment line, and every list
 `FM_WEDGE_ALARM_CHANNEL` overrides the file with one directive for focused testing.
 
 - `off` disables every active alert while retaining the durable marker and tmux flash.
-- `auto` or `default` resolves to `osascript` on macOS.
-  Other platforms have no built-in OS channel, so configure `command:` when a durable marker alone is insufficient.
+- `auto` or `default` resolves to `osascript` on macOS, or `notify-send` on Linux when it is on `PATH`.
+  Every other platform has no built-in OS channel, so configure `command:` when a durable marker alone is insufficient.
 - `osascript` posts a macOS Notification Center banner outside the terminal pane.
+- `notify-send` posts a Linux desktop notification through the standard freedesktop tool.
 - `command:<cmd>` runs `<cmd>` through `sh -c` with the alarm summary as `$1` and on stdin, allowing delivery to a phone or pager service.
 
-An absent `config/wedge-alarm` behaves as `auto`, which is default-on on macOS.
+An absent `config/wedge-alarm` behaves as `auto`, which is default-on on macOS and on Linux with `notify-send` installed (standard on Hyprland/Omarchy and every common desktop).
 This is deliberate because the alarm fires only after a genuine max-defer wedge and is rate-limited to at most once per max-defer window.
 
 Each channel is best-effort.

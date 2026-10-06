@@ -2567,7 +2567,12 @@ SH
 printf '%s\n' herdr >> "${FM_WEDGE_ALARM_REAL_LOG:-/dev/null}"
 exit 0
 SH
-  chmod +x "$fakebin/uname" "$fakebin/osascript" "$fakebin/herdr"
+  cat > "$fakebin/notify-send" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' notify-send >> "${FM_WEDGE_ALARM_REAL_LOG:-/dev/null}"
+exit 0
+SH
+  chmod +x "$fakebin/uname" "$fakebin/osascript" "$fakebin/herdr" "$fakebin/notify-send"
   : > "$dir/alert.log"
   printf '%s\n' "$dir"
 }
@@ -2628,6 +2633,8 @@ test_wedge_alarm_direct_notifiers_honor_discard_seam() {
     wedge_alarm_via_osascript "away-mode WEDGED 900s"
   PATH="$dir/fakebin:$PATH" FM_WEDGE_ALARM_REAL_LOG="$real_log" FM_WEDGE_ALARM_EXEC=discard \
     wedge_alarm_via_herdr "away-mode WEDGED 900s"
+  PATH="$dir/fakebin:$PATH" FM_WEDGE_ALARM_REAL_LOG="$real_log" FM_WEDGE_ALARM_EXEC=discard \
+    wedge_alarm_via_notify_send "away-mode WEDGED 900s"
   FM_WEDGE_ALARM_EXEC=discard wedge_alarm_via_command "$command" "away-mode WEDGED 900s"
   [ ! -s "$real_log" ] || fail "direct notifier helpers bypassed the discard seam: $(cat "$real_log")"
   [ ! -e "$command_output" ] || fail "direct command helper bypassed the discard seam"
@@ -2719,13 +2726,32 @@ test_wedge_alarm_auto_darwin_selects_osascript() {
   pass "auto resolves to the macOS osascript notifier on Darwin (default-on)"
 }
 
-test_wedge_alarm_auto_non_darwin_has_no_os_channel() {
+test_wedge_alarm_auto_linux_selects_notify_send() {
   local dir log
-  dir=$(make_wedge_case wedge-auto-linux); log="$dir/alert.log"
+  dir=$(make_wedge_case wedge-auto-linux-notify-send); log="$dir/alert.log"
   PATH="$dir/fakebin:$PATH" FM_WEDGE_ALARM_LOG="$log" FM_FAKE_UNAME=Linux FM_WEDGE_ALARM_CHANNEL=auto \
     wedge_alarm_notify "away-mode WEDGED 900s" "/s/.marker"
-  [ ! -s "$log" ] || fail "auto selected a built-in OS channel on a non-macOS platform: $(cat "$log")"
-  pass "auto on a non-macOS platform selects no built-in OS channel (the marker or a configured command carries it)"
+  grep -F 'notify-send' "$log" >/dev/null || fail "auto did not resolve to notify-send on Linux: $(cat "$log")"
+  pass "auto resolves to the Linux notify-send notifier when it is on PATH (default-on)"
+}
+
+test_wedge_alarm_auto_linux_without_notify_send_has_no_os_channel() {
+  local dir log sans_path
+  dir=$(make_wedge_case wedge-auto-linux-no-notify-send); log="$dir/alert.log"
+  sans_path=$(fm_test_base_path_sans "$dir/fakebin:$PATH" notify-send)
+  PATH="$sans_path" FM_WEDGE_ALARM_LOG="$log" FM_FAKE_UNAME=Linux FM_WEDGE_ALARM_CHANNEL=auto \
+    wedge_alarm_notify "away-mode WEDGED 900s" "/s/.marker"
+  [ ! -s "$log" ] || fail "auto selected notify-send on Linux although it is not on PATH: $(cat "$log")"
+  pass "auto on Linux without notify-send installed selects no built-in OS channel"
+}
+
+test_wedge_alarm_auto_unsupported_platform_has_no_os_channel() {
+  local dir log
+  dir=$(make_wedge_case wedge-auto-unsupported); log="$dir/alert.log"
+  PATH="$dir/fakebin:$PATH" FM_WEDGE_ALARM_LOG="$log" FM_FAKE_UNAME=FreeBSD FM_WEDGE_ALARM_CHANNEL=auto \
+    wedge_alarm_notify "away-mode WEDGED 900s" "/s/.marker"
+  [ ! -s "$log" ] || fail "auto selected a built-in OS channel on an unsupported platform: $(cat "$log")"
+  pass "auto on a platform with no built-in channel selects none (the marker or a configured command carries it)"
 }
 
 test_wedge_alarm_config_file_multi_channel() {
@@ -3257,7 +3283,9 @@ test_wedge_alarm_command_failure_hides_configured_command
 test_wedge_alarm_unknown_channel_hides_configured_directive
 test_wedge_alarm_off_disables_active_alert_regardless_of_position
 test_wedge_alarm_auto_darwin_selects_osascript
-test_wedge_alarm_auto_non_darwin_has_no_os_channel
+test_wedge_alarm_auto_linux_selects_notify_send
+test_wedge_alarm_auto_linux_without_notify_send_has_no_os_channel
+test_wedge_alarm_auto_unsupported_platform_has_no_os_channel
 test_wedge_alarm_config_file_multi_channel
 test_wedge_alarm_failing_channel_degrades_gracefully
 test_wedge_alarm_hung_channel_times_out_and_falls_through

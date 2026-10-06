@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll the Firstmate attended-posture backstop for %I
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=10min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

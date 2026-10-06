@@ -1,0 +1,15 @@
+[Unit]
+Description=Firstmate attended-posture backstop for %I
+After=default.target
+
+[Service]
+Type=oneshot
+# %I is the unescaped instance name: the FM_HOME this tick covers.
+Environment=FM_HOME=%I
+# Replace with this machine's quartermaster checkout before installing; see
+# docs/attended-backstop.md.
+ExecStart=/path/to/quartermaster/bin/fm-attended-backstop.sh
+# A detected unhealthy tick backgrounds a detached re-arm child
+# (bin/fm-watch-arm.sh) that must outlive this short-lived oneshot run; the
+# default control-group kill on stop would otherwise take it down too.
+KillMode=process
