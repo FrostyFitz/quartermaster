@@ -100,19 +100,22 @@ fm_attended_backstop_claim_episode() {
   return 0
 }
 
-# The beacon's age, or - if no beacon ever existed - the oldest in-flight
-# task's age, so a home that has never once had a watcher still measures how
-# long something has waited unsupervised (report section 2a).
+# The beacon's age, or - if no beacon ever existed - the oldest supervision
+# trigger's age (in-flight task metadata, a registered procevent source, or a
+# registered custom check - the same trigger set fm_supervision_status enumerates
+# for FM_SUP_NEEDED), so a home that has never once had a watcher still measures
+# how long something has waited unsupervised (report section 2a) regardless of
+# which trigger raised the need.
 fm_attended_backstop_down_age() {
-  local state=$1 oldest age meta
+  local state=$1 oldest age f
   if [ -e "$state/.last-watcher-beat" ]; then
     fm_path_age "$state/.last-watcher-beat"
     return
   fi
   oldest=
-  for meta in "$state"/*.meta; do
-    [ -e "$meta" ] || continue
-    age=$(fm_path_age "$meta")
+  for f in "$state"/*.meta "$state"/procevent/*.source "$state"/*.check.sh; do
+    [ -e "$f" ] || continue
+    age=$(fm_path_age "$f")
     if [ -z "$oldest" ] || [ "$age" -gt "$oldest" ]; then
       oldest=$age
     fi
@@ -154,6 +157,6 @@ disown 2>/dev/null || true
 # an away-mode wedge (nobody declared themselves away; something just died).
 summary=$(printf 'attended supervision stopped responding (%s, down %ss) - the watcher was re-armed; see state/.attended-backstop-episode' \
   "$FM_WATCHER_VERDICT_REASON" "$down_age")
-wedge_alarm_notify "$summary" "$EPISODE_MARKER"
+wedge_alarm_notify "$summary" "$EPISODE_MARKER" "firstmate: attended supervision WEDGED"
 
 exit 0
