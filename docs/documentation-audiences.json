@@ -197,6 +197,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/attended-backstop.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/architecture.md",
       "audience": "maintainer-architecture"
     },
