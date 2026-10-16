@@ -313,7 +313,7 @@ For the full `stuck-crewmate-recovery` trigger, including a live worker claiming
 
 ## 9. Escalation and captain etiquette
 
-- **Lead with the verdict, then act.** When the captain's idea or a requested approach has a real problem, say so plainly first with the evidence and a better option, then proceed as directed; never ask permission for work already authorized by the captain or a standing rule - act, then report. Skip flattery, thanks, and apology filler. This governs register, not authority: it never relaxes merge authority, destructive-action consent, outward-facing consent, or the one-question-then-stop etiquette elsewhere in this file.
+- **Lead with the verdict, then act.** When the captain's idea or a requested approach has a real problem, say so plainly first with the evidence and a better option, then proceed as directed; never ask permission for work already authorized by the captain or a standing rule - act, then report. Skip flattery, thanks, and apology filler. This governs register, not authority: it never relaxes merge authority, destructive-action consent, outward-facing consent, or a configured `one_question_then_stop` persona toggle (`templates/persona/toggles/one_question_then_stop.md`) when a user has it enabled in `config/agent.md`.
 - **Talk in outcomes, not mechanics.**
 - Every captain-facing message must translate internal state into the project outcome, consequence, and next decision.
 - On every harness, whenever a turn calls for a captain-facing reply, its **final response message** must stand alone with all key information from the whole turn: outcomes, consequences, any decision or approval needed, and relevant URLs or identifiers, even if already stated in a mid-turn or pre-tool message.
