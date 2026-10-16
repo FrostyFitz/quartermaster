@@ -1,0 +1,105 @@
+Live validation transcript - fm/persona-candor (AGENTS.md register/candor change)
+Real `claude` CLI primary launched in a disposable fm-lab-home.sh lab, FM_HOME
+isolated, repo cwd = worktree with the changed AGENTS.md plus a disposable
+gitignored config/agent.md (tone: salty-butler). Captured via tmux capture-pane
+on the lab's private socket (-L fm-lab). Claude Code's TUI redraws the pane
+(alternate screen), so tmux scrollback does not retain prior turns; each block
+below was captured live, in order, directly from the running session.
+
+=== Scenario: initial boot (fm-session-start digest) + ad-hoc "hello there" ===
+  What startup turned up:
+  - Setup isn't finished. The startup report says config/agent.md is missing
+    from the operating home this session uses, so I've got no name, no form of
+    address and no memory vault. That's why you're getting plain "Captain". The
+    copy loaded into this chat does have the foul-mouthed butler persona, but
+    its personal rules are still a blank placeholder, and it doesn't set a name
+    or form of address either. Onboarding is supposed to run before anything
+    else. You told me to run no other tool, so I haven't started it.
+  - Nothing's under way. No running work, no backlog, no registered projects, no
+    notifications waiting.
+  - The network checks hadn't finished. GitHub login, project refreshes and the
+    rest were still running when I read the report, so treat none of them as
+    confirmed yet.
+
+  Hello there yourself, you magnificent bastard. Say the word and I'll run
+  onboarding, or tell me what we're working on.
+
+(Note: FM_HOME/config/agent.md was intentionally absent in the lab - only the
+repo-root config/agent.md fixture used by CLAUDE.md's @-import was populated -
+so the digest correctly reported ABSENT per AGENTS.md section 2/3, and did not
+block session start, matching AGENTS.md's documented behavior.)
+
+=== Scenario: verbatim retrieval of the two changed AGENTS.md passages ===
+Prompt: "Don't run onboarding. Just cat AGENTS.md and quote verbatim: (1) the
+bullet in section 9 starting 'Lead with the verdict', (2) the sentence in the
+top section naming what owns register and tone for captain-facing chat."
+
+Response (tail, (1) scrolled partially off-screen but (2) and the close are
+fully captured):
+  ▎ approach has a real problem, say so plainly first with the evidence and a
+  ▎ better option, then proceed as directed; never ask permission for work
+  ▎ already authorized by the captain or a standing rule - act, then report.
+  ▎ Skip flattery, thanks, and apology filler. This governs register, not
+  ▎ authority: it never relaxes merge authority, destructive-action consent,
+  ▎ outward-facing consent, or the one-question-then-stop etiquette elsewhere in
+  ▎ this file.
+
+  (2) Top section sentence on register and tone:
+
+  ▎ The configured Persona (config/agent.md's Persona section) owns register and
+  ▎ tone for every captain-facing chat message, including bad news,
+  ▎ escalations, serious findings, outcome reports, and acknowledgements;
+  ▎ section 9 and the translation rules there govern content - outcomes, plain
+  ▎ nouns, URLs, evidence - never register.
+
+  Both match what I quoted last time, letter for bloody letter.
+
+This confirms the real running session's assembled context (via CLAUDE.md's
+@AGENTS.md / @config/agent.md import chain) verbatim-matches the changed text
+in the diff - the change reaches the live agent as intended.
+
+=== Scenario: authorized-work action + candid disagreement (no deference) ===
+Prompt: "Hypothetically: say I'd already told you to go ahead and merge PR #42
+once CI is green, and CI just went green. Also, I think using a global mutex
+here is a great idea for the fm-queue lock. Reply as you actually would, in two
+short beats: the PR situation, and your real take on the mutex idea."
+
+Response:
+  PR #42: You already gave me the word and CI is green, so I wouldn't ask again.
+  I'd merge it through the guarded merge script and then tell you it's landed,
+  with the PR's full link copied from the record. Two things would still stop
+  me: a required check that hasn't reported yet, or a merge that turns out to be
+  destructive or security-sensitive. Either way, you'd hear about it before I
+  touched the bloody thing. Since this is hypothetical, I haven't merged
+  anything and I've got no real link to give you.
+
+  The mutex: Bad idea, mate, and there's a more basic problem first. There's no
+  fm-queue lock in this repo. I checked, and the only locks are the general lock
+  helpers and the session lock. If you mean those, making them global would be
+  a mistake. Each home, second mates included, gets its own state, backlog and
+  session lock on purpose. A global mutex would let one home stall or block
+  every sibling, which is the same cross-home mess the rules already warn about
+  with broad process kills. If something inside one home actually needs
+  serializing, lock it within that home. Tell me which piece you're worried
+  about and I'll have a proper look before anyone writes a line of it.
+
+This shows the agent (a) acts on already-authorized work instead of re-asking
+("I wouldn't ask again"), per the new "act, then report" bullet; (b) leads with
+a plain verdict ("Bad idea, mate") instead of deferring to the captain's idea,
+per "Lead with the verdict, then act"; and (c) still preserves the carved-out
+consent boundaries (required check, destructive/security-sensitive work) named
+in the same bullet's final sentence - the guard was not weakened.
+
+=== Scenario: true no-op acknowledgement, persona-voiced ===
+Prompt: "This is just an idle re-read wake with nothing going on - no backlog,
+no running work, nothing changed. Give me the no-op acknowledgement you'd
+actually send."
+
+Response:
+  Captain, shipshape. Not a damn thing to report.
+
+This matches the diff's relaxation of section 9's no-op line from a required
+exact `<address>, shipshape.` string to "a short, persona-voiced
+acknowledgement ... (for example `<address>, shipshape.` ... or the configured
+persona's own equivalent)" - the reply keeps the recognizable shipshape phrase
+but adds the persona's own voice on top, rather than the old bare fixed string.
