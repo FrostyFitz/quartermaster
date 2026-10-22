@@ -3596,7 +3596,7 @@ test_ado_each_condition_refuses_independently() {
     "draft|draft=true||isDraft is \"true\", not false" \
     "conflicts|merge_status=conflicts||mergeStatus is \"conflicts\", not succeeded" \
     "policy-rejected||Build|rejected|true|true|{\"buildDefinitionName\":\"ci\",\"isExpired\":false}|blocking policy Build (ci) is rejected" \
-    "policy-queued||Required reviewers|queued|true|true||blocking policy Required reviewers is queued" \
+    "policy-queued||Required reviewers|queued|true|true||review required: Required reviewers is queued" \
     "policy-running||Build|running|true|true||blocking policy Build is running" \
     "build-expired||Build|approved|true|true|{\"isExpired\":true}|blocking policy Build evaluated a build that has expired" \
     "build-stale-head||Build|approved|true|true|{\"lastMergeSourceCommitId\":\"$ADO_STALE_HEAD\"}|evaluated $ADO_STALE_HEAD, not the current head"
@@ -3644,6 +3644,32 @@ test_ado_non_blocking_and_disabled_policies_do_not_refuse() {
   pass "fm-pr-merge ignores Azure DevOps policies that do not block completion"
 }
 
+test_ado_unmet_reviewer_policy_is_a_review_requirement() {
+  local case_dir rc type
+  for type in \
+    '"id":"fa4e907d-c16b-4a4c-9dfa-4906e5d171dd","displayName":"Minimum number of reviewers"' \
+    '"id":"FD2167AB-B0BE-447A-8EC8-39368250530E","displayName":"Required reviewers"' \
+    '"displayName":"Comment requirements"'; do
+    case_dir=$(make_ado_case ado-review-policy)
+    printf '[{"status":"queued","configuration":{"isBlocking":true,"isEnabled":true,"isDeleted":false,"type":{%s}}},' \
+      "$type" > "$case_dir/ado-policies.json"
+    printf '{"status":"approved","configuration":{"isBlocking":true,"isEnabled":true,"isDeleted":false,"type":{"displayName":"Build"}},"context":{"lastMergeSourceCommitId":"%s"}}]\n' \
+      "$ADO_HEAD" >> "$case_dir/ado-policies.json"
+    set +e
+    run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "ado-review-policy: an unmet reviewer policy must refuse ($type)"
+    assert_grep '  - review required: ' "$case_dir/stderr" \
+      "ado-review-policy: the refusal did not name a review requirement ($type)"
+    assert_no_grep 'blocking policy' "$case_dir/stderr" \
+      "ado-review-policy: a reviewer policy was reported as a check ($type)"
+    [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "ado-review-policy: a completion was attempted ($type)"
+    rm -rf "$case_dir"
+  done
+  pass "fm-pr-merge reports an unmet Azure DevOps reviewer policy as a review requirement"
+}
+
 test_ado_reports_every_failing_condition() {
   local case_dir rc expected
   case_dir=$(make_ado_case ado-refuse-all status=active draft=true merge_status=conflicts)
@@ -3654,7 +3680,7 @@ test_ado_reports_every_failing_condition() {
   set -e
   expect_code 1 "$rc" "ado-refuse-all: fm-pr-merge should refuse"
   for expected in 'isDraft is "true", not false' 'mergeStatus is "conflicts", not succeeded' \
-    'blocking policy Build is rejected' 'blocking policy Required reviewers is queued'; do
+    'blocking policy Build is rejected' 'review required: Required reviewers is queued'; do
     assert_grep "$expected" "$case_dir/stderr" "ado-refuse-all: '$expected' was not reported"
   done
   pass "fm-pr-merge reports every failing Azure DevOps condition, not only the first"
@@ -3699,7 +3725,9 @@ test_ado_unreadable_state_and_head_refuse() {
 test_ado_never_bypasses_policy_or_redirects_az() {
   local case_dir rc flag
   for flag in '--bypass-policy true' '--bypass-policy-reason because' '--org https://dev.azure.com/other' \
-    '--organization=https://dev.azure.com/other' '--id 1' '--status abandoned' '--detect true'; do
+    '--organization=https://dev.azure.com/other' '--id 1' '--status abandoned' '--detect true' \
+    '--orga https://dev.azure.com/other' '--o=https://dev.azure.com/other' '--i 77' '--stat abandoned' \
+    '--det true' '--bypass-pol true' '--bypass-policy-r because'; do
     case_dir=$(make_ado_case "ado-override-${flag%% *}")
     set +e
     # shellcheck disable=SC2086  # the flag spec is deliberately word-split
@@ -3723,7 +3751,7 @@ test_ado_never_bypasses_policy_or_redirects_az() {
 }
 
 test_ado_extra_args_forwarded_only_attended() {
-  local case_dir rc update_line
+  local case_dir rc update_line flag
   case_dir=$(make_ado_case ado-extra-args)
   set +e
   run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- --delete-source-branch true \
@@ -3734,6 +3762,17 @@ test_ado_extra_args_forwarded_only_attended() {
   assert_grep 'pass --attended-override only for an explicit captain instruction' "$case_dir/stderr" \
     "ado-extra-args: refusal did not name --attended-override"
   [ ! -s "$case_dir/az.log" ] || fail "ado-extra-args: az ran despite the denylist"
+
+  for flag in '--delete-s true' '--delete-source=true' '--auto-comp true' '--a true'; do
+    case_dir=$(make_ado_case "ado-extra-args-abbrev-${flag%%[ =]*}")
+    set +e
+    # shellcheck disable=SC2086  # the flag spec is deliberately word-split
+    run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- $flag > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "ado-extra-args-abbrev: '$flag' must be refused without --attended-override"
+    [ ! -s "$case_dir/az.log" ] || fail "ado-extra-args-abbrev: az ran despite '$flag'"
+  done
 
   case_dir=$(make_ado_case ado-extra-args-strategy)
   run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- --squash true \
@@ -3846,6 +3885,16 @@ test_ado_away_posture_refuses_auto_complete_only() {
   assert_grep 'Azure DevOps auto-complete is attended-only' "$case_dir/stderr" \
     "away-ado-auto: refusal did not name auto-complete"
   [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "away-ado-auto: az received an asynchronous completion"
+
+  case_dir=$(make_ado_case away-ado-auto-abbrev)
+  write_away_record "$case_dir" --words 'merge task-x1 when green'
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- --auto-comp true \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "away-ado-auto-abbrev: an abbreviated auto-complete must be attended-only"
+  [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "away-ado-auto-abbrev: az received an asynchronous completion"
 
   case_dir=$(make_ado_case away-ado-configured 'auto_complete={"id":"11111111-2222-3333-4444-555555555555"}')
   write_away_record "$case_dir" --words 'merge task-x1 when green'
@@ -4299,6 +4348,7 @@ test_allow_red_refused_on_gitlab
 test_ado_url_resolves_and_merges
 test_ado_each_condition_refuses_independently
 test_ado_non_blocking_and_disabled_policies_do_not_refuse
+test_ado_unmet_reviewer_policy_is_a_review_requirement
 test_ado_reports_every_failing_condition
 test_ado_url_naming_another_repository_refuses
 test_ado_unreadable_state_and_head_refuse

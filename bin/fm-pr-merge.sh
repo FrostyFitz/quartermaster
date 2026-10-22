@@ -105,10 +105,13 @@
 # approved or not applicable - so a blocking policy that is queued or running
 # refuses just as an unreported required check does on GitHub - with each build
 # policy having evaluated the exact current head. Every failing condition is
-# reported, not just the first. It is then completed with
+# reported, not just the first. An unmet reviewer, required-reviewer, or
+# comment-requirement policy is reported as a review requirement rather than a
+# check. It is then completed with
 # az repos pr update --status completed, and --bypass-policy is never passed: it
 # is refused in the extra arguments on every path, attended or not, along with
-# any override of the id, organization, or status, and --allow-red and
+# any override of the id, organization, or status, in full or as any prefix az
+# would expand, and --allow-red and
 # --allow-missing do not apply. The pull request's own completion options
 # and branch policy choose the merge strategy, so a project that requires one
 # passes its az flag, for example --squash true, after the -- separator. Unlike gh
@@ -356,6 +359,10 @@ reject_protected_forge_args() {
   local arg
   [ "$ATTENDED_OVERRIDE" = true ] && return 0
   for arg in "$@"; do
+    if [ "$PROVIDER" = azuredevops ] && ado_arg_abbreviates "$arg" auto-complete delete-source-branch; then
+      echo "error: extra merge arguments must not request auto-merge, a protection bypass, or branch deletion; pass --attended-override only for an explicit captain instruction" >&2
+      return 1
+    fi
     case "$arg" in
       --auto|--auto=*|--admin|--admin=*|--delete-branch|--delete-branch=*|--remove-source-branch|--remove-source-branch=*|--auto-complete|--auto-complete=*|--delete-source-branch|--delete-source-branch=*)
         echo "error: extra merge arguments must not request auto-merge, a protection bypass, or branch deletion; pass --attended-override only for an explicit captain instruction" >&2
@@ -372,6 +379,24 @@ reject_protected_forge_args() {
   done
 }
 
+# az parses with argparse, which accepts any unambiguous prefix of a long option
+# and lets the last value win, so --orga overrides --org exactly as --organization
+# would. True when the argument is a long option abbreviating any given name.
+ado_arg_abbreviates() {  # <arg> <name>...
+  local option=${1%%=*} name
+  shift
+  case "$option" in
+    --?*) option=${option#--} ;;
+    *) return 1 ;;
+  esac
+  for name in "$@"; do
+    case "$name" in
+      "$option"*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # az addresses the pull request by --id and --org alone, so those cannot be
 # redirected, the completion status is this script's own, and a policy bypass is
 # never available on any path, attended or not.
@@ -379,16 +404,14 @@ reject_ado_overrides() {
   local arg
   [ "$PROVIDER" = azuredevops ] || return 0
   for arg in "$@"; do
-    case "$arg" in
-      --bypass-policy|--bypass-policy=*|--bypass-policy-reason|--bypass-policy-reason=*)
-        echo "error: extra merge arguments must never bypass branch policy" >&2
-        return 1
-        ;;
-      --id|--id=*|--org|--org=*|--organization|--organization=*|--detect|--detect=*|--status|--status=*)
-        echo "error: extra merge arguments must not override the pull request, organization, or completion status" >&2
-        return 1
-        ;;
-    esac
+    if ado_arg_abbreviates "$arg" bypass-policy bypass-policy-reason; then
+      echo "error: extra merge arguments must never bypass branch policy" >&2
+      return 1
+    fi
+    if ado_arg_abbreviates "$arg" id org organization detect status; then
+      echo "error: extra merge arguments must not override the pull request, organization, or completion status" >&2
+      return 1
+    fi
   done
 }
 
@@ -415,15 +438,13 @@ if [ "$PROVIDER" = gitlab ]; then
     esac
   done
 fi
-# Any mention of --auto-complete is treated as a request, whatever value follows
-# it, because az takes the value as a separate argument and the conservative
-# reading costs only an attended retry.
+# Any mention of --auto-complete, or of an abbreviation az would expand to it, is
+# treated as a request, whatever value follows it, because az takes the value as
+# a separate argument and the conservative reading costs only an attended retry.
 FM_PR_ADO_ASYNC_REQUESTED=false
 if [ "$PROVIDER" = azuredevops ]; then
   for arg in "$@"; do
-    case "$arg" in
-      --auto-complete|--auto-complete=*) FM_PR_ADO_ASYNC_REQUESTED=true ;;
-    esac
+    ! ado_arg_abbreviates "$arg" auto-complete || FM_PR_ADO_ASYNC_REQUESTED=true
   done
 fi
 FM_PR_AWAY_POSTURE=false
@@ -649,7 +670,7 @@ ado_verify_mergeable() {
   # One named field per line, as on GitLab. A policy that blocks merging and is
   # not satisfied is one "policy=" line naming it, with line breaks flattened so
   # a name cannot forge a field line.
-  if ! fields=$(jq -nr --argjson pr "$pr" --argjson policies "$policies" '
+  if ! fields=$(jq -nr --argjson pr "$pr" --argjson policies "$policies" "$FM_PR_ADO_REVIEW_POLICY_JQ"'
       def flat: gsub("[\r\n]"; " ");
       ($pr.lastMergeSourceCommit.commitId // "") as $head
       | if ($policies | type) != "array" then error("policy evaluations are not a list") else . end
@@ -663,7 +684,10 @@ ado_verify_mergeable() {
               and .configuration.isDeleted != true)
           | (.context // {}) as $c
           | ((.configuration.type.displayName // "unnamed policy") + (if $c.buildDefinitionName then " (" + $c.buildDefinitionName + ")" else "" end)) as $name
-          | if ((.status == "approved" or .status == "notApplicable") | not) then
+          | if ado_review_policy then
+              if (.status | IN("approved", "notApplicable")) then empty
+              else "review=" + $name + " is " + ((.status // "unreadable") | tostring) end
+            elif ((.status == "approved" or .status == "notApplicable") | not) then
               "policy=" + $name + " is " + ((.status // "unreadable") | tostring)
             elif $c.isExpired == true then
               "policy=" + $name + " evaluated a build that has expired"
@@ -684,6 +708,11 @@ ado_verify_mergeable() {
       async_configured=*) async_configured=${line#async_configured=} ;;
       policy=*)
         refusals="$refusals  - blocking policy ${line#policy=}
+"
+        continue
+        ;;
+      review=*)
+        refusals="$refusals  - review required: ${line#review=}
 "
         continue
         ;;

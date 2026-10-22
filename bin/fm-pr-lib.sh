@@ -1207,6 +1207,21 @@ fm_pr_ado_check_record() {  # <path> <number>
     end' 2>/dev/null
 }
 
+# A jq definition prefixed to every program that reads Azure DevOps policy
+# evaluations: ado_review_policy is true for the policies a person satisfies
+# rather than a build - minimum reviewers, required reviewers, and comment
+# requirements - so an unmet one is a review requirement, never a check. The
+# policy type id decides, and the type display name only when no id is present.
+FM_PR_ADO_REVIEW_POLICY_JQ='def ado_review_policy:
+  ((.configuration.type.id // "") | tostring | ascii_downcase) as $id
+  | if $id != "" then
+      $id | IN("fa4e907d-c16b-4a4c-9dfa-4906e5d171dd", "fd2167ab-b0be-447a-8ec8-39368250530e",
+        "c6a1889d-b943-4856-b76f-9e46bb6b0df2")
+    else
+      (.configuration.type.displayName // "") | IN("Minimum number of reviewers", "Required reviewers",
+        "Comment requirements")
+    end;'
+
 # Prints the exact pull request record read through az with the azure-devops
 # extension, and fails on any other reading.
 fm_pr_ado_read_pr() {  # <path> <number>

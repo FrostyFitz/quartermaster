@@ -51,11 +51,13 @@ Checks come from the pull request's policy evaluations:
 $ az repos pr policy list --id <id> --org https://dev.azure.com/<org> -o json
 ```
 
-Each evaluation carries `status`, `configuration.isBlocking`, `configuration.isEnabled`, `configuration.isDeleted`, `configuration.type.displayName`, and, for a build policy, a `context` with `buildDefinitionName`, `isExpired`, and `lastMergeSourceCommitId`.
+Each evaluation carries `status`, `configuration.isBlocking`, `configuration.isEnabled`, `configuration.isDeleted`, `configuration.type.id`, `configuration.type.displayName`, and, for a build policy, a `context` with `buildDefinitionName`, `isExpired`, and `lastMergeSourceCommitId`.
 Statuses observed on a live pull request were `approved`, `queued`, and `running`; `rejected`, `broken`, and `notApplicable` are the API's other documented values and are handled but were not observed.
 Only an enabled, undeleted, blocking evaluation counts.
 It is green when its status is `approved` or `notApplicable`, and a build policy is green only when it did not expire and evaluated the current head.
 A required policy that is queued, running, rejected, or broken is therefore a failing or unreported check, exactly as an unreported required check is on GitHub.
+The policies a person satisfies - Minimum number of reviewers, Required reviewers, and Comment requirements, identified by `configuration.type.id` and by `configuration.type.displayName` only when no id is present - are never checks.
+While one is unmet the pull request reads as `REVIEW_REQUIRED`, the same review decision GitHub reports, and the merge refusal names it as a review requirement.
 
 Threads come from the REST resource through `az`, because `az repos pr` has no thread command:
 
@@ -72,6 +74,7 @@ Every non-system, non-deleted comment by someone other than the author is an inc
 
 The merge is `az repos pr update --id <id> --org https://dev.azure.com/<org> --status completed`, after the live conditions in `bin/fm-pr-merge.sh`'s header hold.
 `--bypass-policy` is never passed and is refused in the extra arguments on every path.
+`az` accepts any unambiguous prefix of a long option, so every guard on the extra arguments also refuses any prefix of a protected flag, such as `--orga` for `--organization` or `--auto-comp` for `--auto-complete`.
 
 The extension's `update_pull_request` for `--status completed` reads the pull request again and sends that fresh `lastMergeSourceCommit`, so `az` cannot be bound to the head this run verified the way `gh --match-head-commit` and `glab --sha` bind it.
 A push landing between the verification and the completion is therefore not refused.

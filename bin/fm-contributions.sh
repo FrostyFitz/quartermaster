@@ -346,19 +346,22 @@ observe_ado() { # canonical Azure DevOps URL -> normalized JSON
   after=$(fm_pr_ado_check_record "$path" "$number" < "$TMP/after.json" | jq -er '.lastMergeSourceCommit.commitId') || return 1
   [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
   jq -n --arg url "$url" --slurpfile core "$TMP/core-checked.json" --slurpfile policies "$TMP/policies.json" \
-    --slurpfile threads "$TMP/threads.json" '
+    --slurpfile threads "$TMP/threads.json" "$FM_PR_ADO_REVIEW_POLICY_JQ"'
     $core[0] as $c
     | $c.lastMergeSourceCommit.commitId as $head
+    | [$policies[0][]
+        | select(.configuration.isBlocking == true and .configuration.isEnabled == true and .configuration.isDeleted != true)] as $blocking
     | {head:$head,
         state:(if $c.status == "completed" then "merged" elif $c.status == "abandoned" then "closed" else "open" end),
         draft:($c.isDraft == true),
         mergeable:(if $c.mergeStatus == "succeeded" then "mergeable" elif $c.mergeStatus == "conflicts" then "conflicting" else "unknown" end),
         # Merge permission is not read; the merge stays a captain call either way.
         can_merge:true,
-        review_decision:(if any(($c.reviewers // [])[]; (.vote // 0) <= -5) then "CHANGES_REQUESTED" else "" end),
+        review_decision:(if any(($c.reviewers // [])[]; (.vote // 0) <= -5) then "CHANGES_REQUESTED"
+          elif any($blocking[]; ado_review_policy and (.status | IN("approved", "notApplicable") | not)) then "REVIEW_REQUIRED"
+          else "" end),
         reviews:[],
-        checks:[$policies[0][]
-          | select(.configuration.isBlocking == true and .configuration.isEnabled == true and .configuration.isDeleted != true)
+        checks:[$blocking[] | select(ado_review_policy | not)
           | (.context // {}) as $x
           | {name:((.configuration.type.displayName // "policy")
                 + (if $x.buildDefinitionName then " (" + $x.buildDefinitionName + ")" else "" end)

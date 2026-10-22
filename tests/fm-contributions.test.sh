@@ -1113,7 +1113,7 @@ test_ado_observation_and_signals() {
   jq -e --arg head "$HEAD_A" --arg url "$ADO_PR_URL" '.records[0] | .url == $url and .kind == "pr" and .error == null
     and .observation.head == $head and .observation.state == "open" and .observation.draft == false
     and .observation.mergeable == "mergeable" and .observation.review_decision == ""
-    and (.observation.checks | map(.name) | length == 4 and (unique | length) == 4)
+    and (.observation.checks | map(.name) | length == 3 and (unique | length) == 3)
     and all(.observation.checks[]; .conclusion == "success")
     and (.observation.events | length) == 1 and .observation.events[0].author == "reviewer@example.com"
     and .observation.events[0].source == ($url + "?discussionId=8") and (.pending | length) == 1' \
@@ -1137,13 +1137,35 @@ test_ado_failing_and_stale_policies_are_not_green() {
   local home
   home=$(new_home ado-policies)
   ado_home "$home"
-  jq --arg stale "$HEAD_B" '.[3].context.lastMergeSourceCommitId = $stale | .[0].status = "rejected" | .[1].status = "queued"' \
+  jq --arg stale "$HEAD_B" '.[3].context.lastMergeSourceCommitId = $stale | .[1].status = "rejected" | .[2].status = "queued"' \
     "$home/ado/policies.json" > "$home/ado/p.json" && mv "$home/ado/p.json" "$home/ado/policies.json"
   with_home "$home" "$ROOT/bin/fm-contributions.sh" poll >/dev/null || fail 'poll failed'
   jq -e '[.records[0].observation.checks[] | {key:(.id | tostring), value:.conclusion}] | from_entries
-    == {"1":"failure","2":null,"3":"success","4":null}' "$home/data/adodeliv/contributions.json" >/dev/null \
+    == {"2":"failure","3":null,"4":null}' "$home/data/adodeliv/contributions.json" >/dev/null \
     || fail "a rejected policy must fail, and a queued one or a build at another head must have no verdict: $(cat "$home/data/adodeliv/contributions.json")"
   pass 'rejected, queued, and stale-head Azure DevOps policies are never green'
+}
+
+test_ado_unmet_reviewer_policy_is_review_required() {
+  local home out
+  home=$(new_home ado-review-required)
+  ado_home "$home"
+  jq '.[0].status = "queued" | .[0].configuration.type.id = "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd"
+    | .[0].configuration.type.displayName = "renamed"' \
+    "$home/ado/policies.json" > "$home/ado/p.json" && mv "$home/ado/p.json" "$home/ado/policies.json"
+  jq -n '{value:[]}' > "$home/ado/threads.json"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" poll >/dev/null || fail 'poll failed'
+  jq -e '.records[0].observation | .review_decision == "REVIEW_REQUIRED"
+    and all(.checks[]; .id != 1 and .conclusion == "success")' "$home/data/adodeliv/contributions.json" >/dev/null \
+    || fail "an unmet reviewer policy must be a review requirement, not a check: $(cat "$home/data/adodeliv/contributions.json")"
+  with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$home/input.json" \
+    || fail 'could not collect contribution input'
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" snapshot "$home/input.json" --all) \
+    || fail 'could not project the Azure DevOps delivery'
+  printf '%s' "$out" | jq -e '.rows[0] | .actor == "maintainer" and .reason == "review required"
+    and .failed_checks == 0 and .pending_checks == 0' >/dev/null \
+    || fail "a pull request waiting only on a reviewer policy must be maintainer work: $out"
+  pass 'an unmet Azure DevOps reviewer policy reads as review required, not as a check'
 }
 
 test_ado_rejection_and_other_repository_and_moved_head() {
@@ -1172,7 +1194,7 @@ test_ado_rejection_and_other_repository_and_moved_head() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_ado_observation_and_signals test_ado_failing_and_stale_policies_are_not_green test_ado_rejection_and_other_repository_and_moved_head; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_ado_observation_and_signals test_ado_failing_and_stale_policies_are_not_green test_ado_unmet_reviewer_policy_is_review_required test_ado_rejection_and_other_repository_and_moved_head; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"
