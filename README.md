@@ -180,6 +180,9 @@ Optionally add `team/brief-include.md` and have each teammate symlink their loca
 Optionally add team skills as new folders under `.agents/skills/` with team-specific names.
 Only add files to the private copy; never edit upstream ones, so upstream updates keep merging cleanly.
 Pull updates with an `upstream` remote and `git merge upstream/main`.
+To merge them through a pull request, run that merge on a branch named `upstream-sync` (`git switch -C upstream-sync origin/main && git merge upstream/main`).
+Also set the repository variable `NO_MISTAKES_EXEMPT_HEAD_BRANCHES` to `upstream-sync`.
+That PR carries already-validated upstream commits, so it is exempt from the `PR must be raised via no-mistakes` check rather than re-run through the pipeline, which could push fixes into upstream files.
 
 ## Documentation
 
