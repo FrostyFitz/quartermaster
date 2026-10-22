@@ -382,6 +382,22 @@ test_pr_based_dod_draft_check_uses_gh_axi() {
   pass "PR-based DoD draft check uses gh-axi"
 }
 
+# A PR on Azure DevOps has no gh-axi path, so the DoD also names the az read and
+# the az call that marks a draft ready, and keeps the GitHub instruction intact.
+test_pr_based_dod_names_the_azure_devops_draft_check() {
+  local mode out
+  for mode in direct-PR no-mistakes; do
+    out="$TMP_ROOT/dod-ado-$mode.md"
+    fm_dod_block "$mode" dod-ado-task > "$out"
+    assert_grep 'az repos pr show --id <number> --org https://dev.azure.com/<organization> --query isDraft -o tsv' "$out" \
+      "$mode: DoD must read an Azure DevOps draft state through az"
+    assert_grep 'az repos pr update --id <number> --org https://dev.azure.com/<organization> --draft false' "$out" \
+      "$mode: DoD must mark an Azure DevOps draft ready through az"
+    assert_grep 'gh-axi pr ready <number>' "$out" "$mode: the GitHub instruction was lost"
+  done
+  pass "PR-based DoD names the Azure DevOps draft check beside the GitHub one"
+}
+
 test_scout_done_is_not_gated
 test_unpushed_ship_done_is_refused
 test_no_mistakes_prevalidation_done_is_not_gated
@@ -400,5 +416,6 @@ test_standalone_local_only_needs_project_ref
 test_non_done_lines_are_not_gated
 test_fenced_and_indented_captain_lines_are_not_intent
 test_pr_based_dod_draft_check_uses_gh_axi
+test_pr_based_dod_names_the_azure_devops_draft_check
 
 echo "all fm-dod-lib tests passed"

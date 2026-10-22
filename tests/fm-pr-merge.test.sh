@@ -3443,6 +3443,426 @@ test_allow_red_refused_on_gitlab() {
   pass "fm-pr-merge refuses --allow-red on GitLab"
 }
 
+# The Azure DevOps fixture: an organization, a project whose name needs
+# percent-encoding, and a repository, addressed by an az mock the same way the
+# GitLab cases address glab.
+ADO_ORG=exampleorg
+ADO_PROJECT_ENC=Firmware%20DevOps
+ADO_PROJECT='Firmware DevOps'
+ADO_REPO=mt-base
+ADO_ORG_URL="https://dev.azure.com/$ADO_ORG"
+ADO_URL="$ADO_ORG_URL/$ADO_PROJECT_ENC/_git/$ADO_REPO/pullrequest/9"
+ADO_HEAD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+ADO_STALE_HEAD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+# az mock recording every invocation. `repos pr show` answers from the case's
+# pull request payload, and from the post-completion payload once `repos pr
+# update` ran unless the case marks the pull request as staying active. Marker
+# files in the case dir drive the failure modes.
+add_az_mock() {
+  local case_dir=$1
+  cat > "$case_dir/fakebin/az" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_TEST_AZ_DIR/az.log"
+case "${1:-} ${2:-} ${3:-}" in
+  "repos pr show")
+    [ ! -e "$FM_TEST_AZ_DIR/az-show-fails" ] || exit 1
+    if [ -e "$FM_TEST_AZ_DIR/az-update-called" ] && [ ! -e "$FM_TEST_AZ_DIR/az-stays-active" ]; then
+      cat "$FM_TEST_AZ_DIR/ado-post.json"
+    else
+      cat "$FM_TEST_AZ_DIR/ado.json"
+    fi
+    exit 0
+    ;;
+  "repos pr policy")
+    cat "$FM_TEST_AZ_DIR/ado-policies.json"
+    exit 0
+    ;;
+  "repos pr update")
+    [ ! -e "$FM_TEST_AZ_DIR/az-update-fails" ] || { echo "TF401028: policy rejected the completion" >&2; exit 1; }
+    : > "$FM_TEST_AZ_DIR/az-update-called"
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/az"
+  ln -sf "$JQ_BIN" "$case_dir/fakebin/jq"
+}
+
+# write_ado_json <file> [<field>=<value> ...]: a pull request record that
+# satisfies every pre-merge condition, with the named fields overridden.
+write_ado_json() {
+  local file=$1 kv key value
+  local status=active draft=false merge_status=succeeded head=$ADO_HEAD repo=$ADO_REPO
+  local auto_complete=null
+  shift
+  for kv in "$@"; do
+    key=${kv%%=*}
+    value=${kv#*=}
+    case "$key" in
+      status) status=$value ;;
+      draft) draft=$value ;;
+      merge_status) merge_status=$value ;;
+      head) head=$value ;;
+      repo) repo=$value ;;
+      auto_complete) auto_complete=$value ;;
+      *) fail "write_ado_json: unknown field '$key'" ;;
+    esac
+  done
+  printf '{"pullRequestId":9,"status":"%s","isDraft":%s,"mergeStatus":"%s",' \
+    "$status" "$draft" "$merge_status" > "$file"
+  printf '"lastMergeSourceCommit":{"commitId":"%s"},"autoCompleteSetBy":%s,' \
+    "$head" "$auto_complete" >> "$file"
+  printf '"repository":{"name":"%s","project":{"name":"%s"}}}\n' \
+    "$repo" "$ADO_PROJECT" >> "$file"
+}
+
+# write_ado_policies <file> <entry>... : one policy evaluation per entry, as
+# <type>|<status>|<blocking>|<enabled>|<context-json>. No entry means no policy.
+write_ado_policies() {
+  local file=$1 entry sep='' type status blocking enabled context
+  shift
+  printf '[' > "$file"
+  for entry in "$@"; do
+    IFS='|' read -r type status blocking enabled context <<EOF2
+$entry
+EOF2
+    printf '%s{"status":"%s","configuration":{"isBlocking":%s,"isEnabled":%s,"isDeleted":false,"type":{"displayName":"%s"}},"context":%s}' \
+      "$sep" "$status" "$blocking" "$enabled" "$type" "${context:-null}" >> "$file"
+    sep=,
+  done
+  printf ']\n' >> "$file"
+}
+
+# make_ado_case <name> [<field>=<value> ...]: a case dir with the az mock, a
+# pull request payload, and a policy list that is entirely approved.
+make_ado_case() {
+  local name=$1 case_dir
+  shift
+  case_dir=$(make_case "$name")
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" cccccccccccccccccccccccccccccccccccccccc
+  add_az_mock "$case_dir"
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/az.log"
+  write_ado_json "$case_dir/ado.json" "$@"
+  write_ado_json "$case_dir/ado-post.json" status=completed
+  write_ado_policies "$case_dir/ado-policies.json" \
+    'Minimum number of reviewers|approved|true|true|' \
+    "Build|approved|true|true|{\"buildDefinitionName\":\"ci\",\"isExpired\":false,\"lastMergeSourceCommitId\":\"$ADO_HEAD\"}" \
+    'Require a merge strategy|approved|true|true|' \
+    'Work item linking|notApplicable|true|true|'
+  printf '%s\n' "$case_dir"
+}
+
+ado_update_line() {
+  grep -F 'repos pr update' "$1" || true
+}
+
+run_ado_merge() {
+  local case_dir=$1; shift
+  FM_TEST_AZ_DIR="$case_dir" FM_PR_ADO_CONFIRM_DELAY=0 run_pr_merge "$case_dir" "$@"
+}
+
+test_ado_url_resolves_and_merges() {
+  local case_dir rc update_line
+  case_dir=$(make_ado_case ado-merges)
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "ado-merges: a well-formed pull request URL should merge"
+  assert_grep "pr=$ADO_URL" "$case_dir/state/task-x1.meta" \
+    "ado-merges: pr= was not recorded before merging"
+  assert_grep "repos pr show --id 9 --org $ADO_ORG_URL" "$case_dir/az.log" \
+    "ado-merges: the state was not read by id and organization"
+  assert_grep "repos pr policy list --id 9 --org $ADO_ORG_URL" "$case_dir/az.log" \
+    "ado-merges: the policy evaluations were not read"
+  update_line=$(ado_update_line "$case_dir/az.log")
+  [ "$update_line" = "repos pr update --id 9 --org $ADO_ORG_URL --status completed --only-show-errors -o none" ] \
+    || fail "ado-merges: unexpected completion invocation: '$update_line'"
+  assert_no_grep 'bypass' "$case_dir/az.log" "ado-merges: a policy bypass reached az"
+  assert_grep "every blocking policy approved at head $ADO_HEAD" "$case_dir/stderr" \
+    "ado-merges: the verified head was not reported"
+  [ ! -s "$case_dir/gh-axi.log" ] || fail "ado-merges: a pull request reached the GitHub CLI"
+  pass "fm-pr-merge completes an Azure DevOps pull request through az"
+}
+
+test_ado_each_condition_refuses_independently() {
+  local case_dir rc name expected spec fields policy
+  set -- \
+    "abandoned|status=abandoned||status is \"abandoned\", not active" \
+    "draft|draft=true||isDraft is \"true\", not false" \
+    "conflicts|merge_status=conflicts||mergeStatus is \"conflicts\", not succeeded" \
+    "policy-rejected||Build|rejected|true|true|{\"buildDefinitionName\":\"ci\",\"isExpired\":false}|blocking policy Build (ci) is rejected" \
+    "policy-queued||Required reviewers|queued|true|true||blocking policy Required reviewers is queued" \
+    "policy-running||Build|running|true|true||blocking policy Build is running" \
+    "build-expired||Build|approved|true|true|{\"isExpired\":true}|blocking policy Build evaluated a build that has expired" \
+    "build-stale-head||Build|approved|true|true|{\"lastMergeSourceCommitId\":\"$ADO_STALE_HEAD\"}|evaluated $ADO_STALE_HEAD, not the current head"
+  for spec in "$@"; do
+    name=${spec%%|*}; spec=${spec#*|}
+    fields=${spec%%|*}; spec=${spec#*|}
+    policy=${spec%|*}; expected=${spec##*|}
+    if [ -n "$fields" ]; then
+      case_dir=$(make_ado_case "ado-refuse-$name" "$fields")
+    else
+      case_dir=$(make_ado_case "ado-refuse-$name")
+    fi
+    [ -z "$policy" ] || write_ado_policies "$case_dir/ado-policies.json" "$policy"
+    set +e
+    run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "ado-refuse-$name: fm-pr-merge should refuse"
+    assert_grep "error: refusing to merge $ADO_URL" "$case_dir/stderr" \
+      "ado-refuse-$name: refusal did not name the pull request"
+    assert_grep "$expected" "$case_dir/stderr" \
+      "ado-refuse-$name: refusal did not name the failing condition"
+    [ -z "$(ado_update_line "$case_dir/az.log")" ] \
+      || fail "ado-refuse-$name: a completion was attempted despite the refusal"
+    assert_grep "pr=$ADO_URL" "$case_dir/state/task-x1.meta" \
+      "ado-refuse-$name: a refusal should still leave the recorded PR reference"
+    assert_present "$case_dir/state/task-x1.check.sh" \
+      "ado-refuse-$name: a refusal should still leave the merge poll armed"
+  done
+  pass "fm-pr-merge refuses on each Azure DevOps pre-merge condition independently"
+}
+
+test_ado_non_blocking_and_disabled_policies_do_not_refuse() {
+  local case_dir rc
+  case_dir=$(make_ado_case ado-optional-policies)
+  write_ado_policies "$case_dir/ado-policies.json" \
+    'Build|rejected|false|true|' \
+    'Required reviewers|queued|true|false|' \
+    'Build|approved|true|true|'
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "ado-optional-policies: an optional or disabled policy must not refuse"
+  pass "fm-pr-merge ignores Azure DevOps policies that do not block completion"
+}
+
+test_ado_reports_every_failing_condition() {
+  local case_dir rc expected
+  case_dir=$(make_ado_case ado-refuse-all status=active draft=true merge_status=conflicts)
+  write_ado_policies "$case_dir/ado-policies.json" 'Build|rejected|true|true|' 'Required reviewers|queued|true|true|'
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "ado-refuse-all: fm-pr-merge should refuse"
+  for expected in 'isDraft is "true", not false' 'mergeStatus is "conflicts", not succeeded' \
+    'blocking policy Build is rejected' 'blocking policy Required reviewers is queued'; do
+    assert_grep "$expected" "$case_dir/stderr" "ado-refuse-all: '$expected' was not reported"
+  done
+  pass "fm-pr-merge reports every failing Azure DevOps condition, not only the first"
+}
+
+test_ado_url_naming_another_repository_refuses() {
+  local case_dir rc
+  case_dir=$(make_ado_case ado-wrong-repo repo=other-repo)
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "ado-wrong-repo: a URL naming a different repository must refuse"
+  assert_grep 'could not read the Azure DevOps pull request state' "$case_dir/stderr" \
+    "ado-wrong-repo: refusal did not say the record could not be matched"
+  [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "ado-wrong-repo: a completion was attempted"
+  pass "fm-pr-merge refuses a pull request whose repository is not the URL's"
+}
+
+test_ado_unreadable_state_and_head_refuse() {
+  local case_dir rc
+  case_dir=$(make_ado_case ado-unreadable)
+  : > "$case_dir/az-show-fails"
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "ado-unreadable: an unreadable pull request must refuse"
+  [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "ado-unreadable: a completion was attempted"
+
+  case_dir=$(make_ado_case ado-bad-head head=not-a-sha)
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "ado-bad-head: an invalid head must refuse"
+  assert_grep 'could not read the Azure DevOps pull request head commit' "$case_dir/stderr" \
+    "ado-bad-head: refusal did not name the head"
+  pass "fm-pr-merge refuses when the Azure DevOps state or head cannot be read"
+}
+
+test_ado_never_bypasses_policy_or_redirects_az() {
+  local case_dir rc flag
+  for flag in '--bypass-policy true' '--bypass-policy-reason because' '--org https://dev.azure.com/other' \
+    '--organization=https://dev.azure.com/other' '--id 1' '--status abandoned' '--detect true'; do
+    case_dir=$(make_ado_case "ado-override-${flag%% *}")
+    set +e
+    # shellcheck disable=SC2086  # the flag spec is deliberately word-split
+    run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- $flag \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "ado-override: '$flag' must be refused even attended"
+    [ ! -s "$case_dir/az.log" ] || fail "ado-override: az ran despite '$flag'"
+    assert_no_grep "pr=$ADO_URL" "$case_dir/state/task-x1.meta" \
+      "ado-override: '$flag' was recorded before rejecting"
+  done
+  case_dir=$(make_ado_case ado-allow-red)
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "ado-allow-red: --allow-red must not apply to Azure DevOps"
+  assert_grep 'do not apply to Azure DevOps' "$case_dir/stderr" "ado-allow-red: refusal did not name Azure DevOps"
+  pass "fm-pr-merge never bypasses an Azure DevOps policy or redirects az"
+}
+
+test_ado_extra_args_forwarded_only_attended() {
+  local case_dir rc update_line
+  case_dir=$(make_ado_case ado-extra-args)
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- --delete-source-branch true \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "ado-extra-args: source-branch deletion must be refused without --attended-override"
+  assert_grep 'pass --attended-override only for an explicit captain instruction' "$case_dir/stderr" \
+    "ado-extra-args: refusal did not name --attended-override"
+  [ ! -s "$case_dir/az.log" ] || fail "ado-extra-args: az ran despite the denylist"
+
+  case_dir=$(make_ado_case ado-extra-args-strategy)
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- --squash true \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "ado-extra-args-strategy: a merge strategy should be forwarded"
+  update_line=$(ado_update_line "$case_dir/az.log")
+  [ "$update_line" = "repos pr update --id 9 --org $ADO_ORG_URL --status completed --only-show-errors -o none --squash true" ] \
+    || fail "ado-extra-args-strategy: strategy not forwarded: '$update_line'"
+
+  case_dir=$(make_ado_case ado-extra-args-attended)
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- --delete-source-branch true \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "ado-extra-args-attended: attended override should merge"
+  assert_grep 'delete-source-branch true' "$case_dir/az.log" \
+    "ado-extra-args-attended: the attended flag was not forwarded"
+  pass "fm-pr-merge forwards Azure DevOps strategy flags and gates branch deletion on --attended-override"
+}
+
+test_ado_merge_failure_propagates() {
+  local case_dir rc
+  case_dir=$(make_ado_case ado-merge-fails)
+  : > "$case_dir/az-update-fails"
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "ado-merge-fails: a failing completion should not report success"
+  assert_grep 'TF401028' "$case_dir/stderr" "ado-merge-fails: the forge's own error was swallowed"
+  assert_grep "pr=$ADO_URL" "$case_dir/state/task-x1.meta" \
+    "ado-merge-fails: pr= should already be recorded even though the completion failed"
+  assert_absent "$case_dir/state/.wake-queue" "ado-merge-fails: a failed completion was reported as landed"
+  pass "fm-pr-merge propagates a real az completion failure without silently succeeding"
+}
+
+test_ado_unconfirmed_completion_leaves_the_poll_armed() {
+  local case_dir
+  case_dir=$(make_ado_case ado-unconfirmed)
+  : > "$case_dir/az-stays-active"
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "ado-unconfirmed: an accepted completion request failed"
+  assert_grep 'landed state could not be confirmed; the merge poll remains armed' "$case_dir/stderr" \
+    "ado-unconfirmed: the unconfirmed state was not reported"
+  assert_absent "$case_dir/state/.wake-queue" "ado-unconfirmed: an unconfirmed completion was reported as landed"
+  [ -f "$case_dir/state/task-x1.check.sh" ] || fail "ado-unconfirmed: the merge poll was not left armed"
+  [ "$(grep -c 'repos pr show' "$case_dir/az.log")" -ge 5 ] \
+    || fail "ado-unconfirmed: the read-back was not retried"
+  pass "an unconfirmed Azure DevOps completion stays silent and leaves confirmation to the armed poll"
+}
+
+test_ado_merge_of_a_different_head_is_reported() {
+  local case_dir
+  case_dir=$(make_ado_case ado-moved-head)
+  write_ado_json "$case_dir/ado-post.json" status=completed "head=$ADO_STALE_HEAD"
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "ado-moved-head: the merge failed"
+  assert_grep "merged at head $ADO_STALE_HEAD, not the head $ADO_HEAD this run verified" "$case_dir/stderr" \
+    "ado-moved-head: a merged head the run never verified was not reported"
+  pass "a head that moved between verification and completion is reported, not hidden"
+}
+
+test_ado_merge_reports_upward() {
+  local case_dir
+  case_dir=$(make_ado_case ado-merge-reports)
+  mkdir -p "$case_dir/home"
+  printf '%s\n' mate-x >"$case_dir/home/.fm-secondmate-home"
+  printf 'schema=fm-secondmate-parent.v1\nroute=remote\n' >"$case_dir/home/.fm-secondmate-parent"
+  FM_TEST_HOME="$case_dir/home" run_ado_merge "$case_dir" task-x1 "$ADO_URL" \
+    >"$case_dir/stdout" 2>"$case_dir/stderr" || fail "ado-merge-reports: merge failed"
+  assert_grep "done [key=merged-task-x1]: merged task-x1 $ADO_URL" \
+    <(sed -E 's/ \[at=[0-9]+\]//' "$case_dir/state/parent-replies.status") \
+    "ado-merge-reports: a landed pull request was not reported upward"
+  pass "a landed Azure DevOps pull request is reported upward on the same channel"
+}
+
+test_ado_missing_tool_refuses_before_recording() {
+  local case_dir rc tool other
+  for tool in az jq; do
+    if [ "$tool" = az ]; then other=jq; else other=az; fi
+    case_dir=$(make_ado_case "ado-no-$tool")
+    # A tool this shell already ran stays in its hash table and would still
+    # resolve through the tool-free path.
+    hash -r
+    mirror_path_without "$case_dir/no$tool" "$tool" "$case_dir/fakebin"
+    PATH="$case_dir/no$tool" command -v "$other" >/dev/null 2>&1 \
+      || fail "ado-no-$tool: the $tool-free search path lost the $other mock as well"
+    set +e
+    FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" FM_TEST_AZ_DIR="$case_dir" \
+    PATH="$case_dir/no$tool" \
+      "$PR_MERGE" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "ado-no-$tool: fm-pr-merge should refuse"
+    assert_grep "merging an Azure DevOps pull request requires $tool on PATH" "$case_dir/stderr" \
+      "ado-no-$tool: refusal did not name the missing tool"
+    assert_no_grep "pr=$ADO_URL" "$case_dir/state/task-x1.meta" \
+      "ado-no-$tool: a PR reference was recorded despite the missing tool"
+    assert_absent "$case_dir/state/task-x1.check.sh" "ado-no-$tool: a merge poll was armed despite the missing tool"
+  done
+  pass "fm-pr-merge refuses before recording anything when az or jq is absent"
+}
+
+test_ado_away_posture_refuses_auto_complete_only() {
+  local case_dir rc
+  case_dir=$(make_ado_case away-ado-auto)
+  write_away_record "$case_dir" --words 'merge task-x1 when green'
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- --auto-complete true \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "away-ado-auto: auto-complete must be attended-only"
+  assert_grep 'Azure DevOps auto-complete is attended-only' "$case_dir/stderr" \
+    "away-ado-auto: refusal did not name auto-complete"
+  [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "away-ado-auto: az received an asynchronous completion"
+
+  case_dir=$(make_ado_case away-ado-configured 'auto_complete={"id":"11111111-2222-3333-4444-555555555555"}')
+  write_away_record "$case_dir" --words 'merge task-x1 when green'
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "away-ado-configured: configured auto-complete must refuse"
+  [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "away-ado-configured: az received a configured asynchronous completion"
+
+  case_dir=$(make_ado_case away-ado-sync)
+  write_away_record "$case_dir" --words 'merge task-x1 when green'
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "away-ado-sync: an immediate completion under the record should succeed"
+  pass "away posture permits an immediate Azure DevOps completion but refuses auto-complete"
+}
+
 # A required check that never reported has no entry in the rollup at all, so
 # it can only be found missing by reading the forge's own required set. Each
 # case drives the GitHub path through the public entrypoint with a faked forge.
@@ -3876,6 +4296,20 @@ test_away_record_cannot_change_between_the_authority_read_and_the_merge
 test_a_record_made_unreadable_before_the_merge_refuses_it
 test_merge_refuses_when_the_away_record_cannot_be_locked
 test_allow_red_refused_on_gitlab
+test_ado_url_resolves_and_merges
+test_ado_each_condition_refuses_independently
+test_ado_non_blocking_and_disabled_policies_do_not_refuse
+test_ado_reports_every_failing_condition
+test_ado_url_naming_another_repository_refuses
+test_ado_unreadable_state_and_head_refuse
+test_ado_never_bypasses_policy_or_redirects_az
+test_ado_extra_args_forwarded_only_attended
+test_ado_merge_failure_propagates
+test_ado_unconfirmed_completion_leaves_the_poll_armed
+test_ado_merge_of_a_different_head_is_reported
+test_ado_merge_reports_upward
+test_ado_missing_tool_refuses_before_recording
+test_ado_away_posture_refuses_auto_complete_only
 test_required_check_that_never_reported_refuses
 test_required_checks_reported_and_green_merge
 test_red_and_unreported_checks_are_reported_together
