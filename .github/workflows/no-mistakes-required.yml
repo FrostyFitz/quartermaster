@@ -71,3 +71,5 @@ jobs:
         uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@f6441c96c352a18b9cadcaef6b6c7017e9ac3970 # v1.80.1
         with:
           exempt-authors: FrostyFitz
+          # When the variable is unset the expression is empty and nothing is exempt, so the public upstream repo exempts nothing; private copies opt in by setting NO_MISTAKES_EXEMPT_HEAD_BRANCHES (for example to upstream-sync).
+          exempt-head-branches: ${{ vars.NO_MISTAKES_EXEMPT_HEAD_BRANCHES }}
