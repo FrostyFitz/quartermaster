@@ -17,8 +17,9 @@
 # GitHub PRs and issues and Azure DevOps pull requests are supported; other
 # forges remain visibly unmeasured.
 # An Azure DevOps pull request is read through az with the azure-devops
-# extension: its blocking policy evaluations are its checks, a reviewer's
-# rejection or wait is its review decision, and every non-system comment by
+# extension: a reviewer's rejection or wait, or an unmet blocking reviewer or
+# comment policy, is its review decision, its other blocking policy evaluations
+# are its checks, and every non-system comment by
 # someone other than the author is an incoming signal, because only members of
 # the organization can comment. It reports no reviews and no merge permission:
 # a vote carries no commit to judge freshness by, and the permission is not read.
