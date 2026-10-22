@@ -1,0 +1,14 @@
+workflow with: {'exempt-authors': 'FrostyFitz', 'exempt-head-branches': '${{ vars.NO_MISTAKES_EXEMPT_HEAD_BRANCHES }}'}
+
+1. upstream-sync, author teammate, repo var UNSET              exempt-head-branches=''               -> FAIL (exit 1)
+    ::error::Could not verify this PR's live body/head via the GitHub API, so require-no-mistakes cannot safely evaluate compliance: falling back to the workflow's own cached event payload risks certifying a stale, already-superseded verdict if this job was rerun (see verify.py's module docstring).
+2. upstream-sync, author teammate, var=upstream-sync           exempt-head-branches='upstream-sync'  -> PASS (exempt)
+    Skipping no-mistakes enforcement: head branch upstream-sync matches exempt pattern upstream-sync.
+3. feature branch, author teammate, var=upstream-sync          exempt-head-branches='upstream-sync'  -> FAIL (exit 1)
+    ::error::Could not verify this PR's live body/head via the GitHub API, so require-no-mistakes cannot safely evaluate compliance: falling back to the workflow's own cached event payload risks certifying a stale, already-superseded verdict if this job was rerun (see verify.py's module docstring).
+4. upstream-sync-evil, author teammate, var=upstream-sync      exempt-head-branches='upstream-sync'  -> FAIL (exit 1)
+    ::error::Could not verify this PR's live body/head via the GitHub API, so require-no-mistakes cannot safely evaluate compliance: falling back to the workflow's own cached event payload risks certifying a stale, already-superseded verdict if this job was rerun (see verify.py's module docstring).
+5. feature branch, author FrostyFitz, var UNSET                exempt-head-branches=''               -> PASS (exempt)
+    Skipping no-mistakes enforcement: author FrostyFitz is a configured exempt author.
+6. feature branch, author someone-else, var UNSET              exempt-head-branches=''               -> FAIL (exit 1)
+    ::error::Could not verify this PR's live body/head via the GitHub API, so require-no-mistakes cannot safely evaluate compliance: falling back to the workflow's own cached event payload risks certifying a stale, already-superseded verdict if this job was rerun (see verify.py's module docstring).
