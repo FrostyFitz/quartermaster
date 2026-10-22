@@ -1,0 +1,12 @@
+## 1. fm_pr_url_parse recognizes Azure DevOps pull request URLs
+ACCEPT https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9 -> provider=azuredevops host=dev.azure.com path=exampleorg/Firmware%20DevOps/_git/mt-base number=9
+REJECT https://exampleorg.visualstudio.com/Proj/_git/repo/pullrequest/9
+REJECT https://dev.azure.com/exampleorg/Proj%2F..%2Fx/_git/repo/pullrequest/9
+ACCEPT https://github.com/o/r/pull/1 -> provider=github host=github.com path=o/r number=1
+
+## 2. fm-pr-poll.sh merge watch (az stubbed)
+az status=active -> poll output: ''
+az status=abandoned -> poll output: ''
+az status=completed -> poll output: 'merged'
+az invocations:
+az repos pr show --id 9 --org https://dev.azure.com/exampleorg --only-show-errors --query [status, repository.project.name, repository.name] -o tsv

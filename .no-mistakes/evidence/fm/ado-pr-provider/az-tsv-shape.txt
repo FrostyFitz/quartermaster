@@ -1,0 +1,5 @@
+$ az version --query "[\"azure-cli\", extensions.\"azure-devops\", \"azure-cli-core\"]" -o tsv
+2.90.0
+1.0.7
+2.90.0
+lines: 3

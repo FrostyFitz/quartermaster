@@ -1,0 +1,36 @@
+$ fm-pr-merge.sh task-x1 https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9   # all policies approved
+  stdout: armed: state/task-x1.check.sh
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr: ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr: ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr: ●  This is a supervision warning only; the guarded operation WILL still run.
+  stderr: ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: verified: https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9 is active and mergeable, with every blocking policy approved at head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  exit=0
+  az calls:
+    az repos pr show --id 9 --org https://dev.azure.com/exampleorg --only-show-errors -o json
+    az repos pr policy list --id 9 --org https://dev.azure.com/exampleorg --only-show-errors -o json
+    az repos pr update --id 9 --org https://dev.azure.com/exampleorg --status completed --only-show-errors -o none
+    az repos pr show --id 9 --org https://dev.azure.com/exampleorg --only-show-errors -o json
+  recorded meta: pr=https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9
+
+$ fm-pr-merge.sh task-x1 https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9   # build policy rejected + reviewer policy unmet
+  stdout: armed: state/task-x1.check.sh
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr: ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr: ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr: ●  This is a supervision warning only; the guarded operation WILL still run.
+  stderr: ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: error: refusing to merge https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9
+  stderr:   - review required: Minimum number of reviewers is rejected
+  stderr:   - blocking policy Build (ci) is rejected
+  exit=1
+  az calls:
+    az repos pr show --id 9 --org https://dev.azure.com/exampleorg --only-show-errors -o json
+    az repos pr policy list --id 9 --org https://dev.azure.com/exampleorg --only-show-errors -o json
+  recorded meta: pr=https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9
+
