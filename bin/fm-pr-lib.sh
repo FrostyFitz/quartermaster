@@ -1212,6 +1212,7 @@ fm_pr_ado_check_record() {  # <path> <number>
 # rather than a build - minimum reviewers, required reviewers, and comment
 # requirements - so an unmet one is a review requirement, never a check. The
 # policy type id decides, and the type display name only when no id is present.
+# shellcheck disable=SC2016  # jq program text: $id is a jq variable, not shell.
 FM_PR_ADO_REVIEW_POLICY_JQ='def ado_review_policy:
   ((.configuration.type.id // "") | tostring | ascii_downcase) as $id
   | if $id != "" then
