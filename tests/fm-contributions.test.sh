@@ -1065,8 +1065,136 @@ test_late_owner_keeps_failure_episode_suppressed() {
   pass 'a late owner does not restart a shared forge failure episode'
 }
 
+# Azure DevOps: the pull request is read through az, its blocking policy
+# evaluations are its checks, and a human comment is an incoming signal.
+ADO_PR_URL='https://dev.azure.com/o/Proj%20X/_git/r/pullrequest/5'
+
+ado_home() {
+  local home=$1
+  forge_home "$home"
+  mkdir -p "$home/ado"
+  printf -- '- [ ] adodeliv - Filed %s (repo: sample) (kind: ship)\n' "$ADO_PR_URL" >> "$home/data/backlog.md"
+  jq -n --arg head "$HEAD_A" '{pullRequestId:5,status:"active",isDraft:false,mergeStatus:"succeeded",
+    lastMergeSourceCommit:{commitId:$head},createdBy:{id:"author-id",uniqueName:"author@example.com"},
+    reviewers:[{vote:10}],repository:{name:"r",project:{name:"Proj X"}}}' > "$home/ado/pr.json"
+  jq -n --arg head "$HEAD_A" '[
+    {status:"approved",configuration:{id:1,isBlocking:true,isEnabled:true,isDeleted:false,type:{displayName:"Minimum number of reviewers"}}},
+    {status:"approved",configuration:{id:2,isBlocking:true,isEnabled:true,isDeleted:false,type:{displayName:"Require a merge strategy"}}},
+    {status:"approved",configuration:{id:3,isBlocking:true,isEnabled:true,isDeleted:false,type:{displayName:"Require a merge strategy"}}},
+    {status:"approved",configuration:{id:4,isBlocking:true,isEnabled:true,isDeleted:false,type:{displayName:"Build"}},
+     context:{buildDefinitionName:"ci",isExpired:false,lastMergeSourceCommitId:$head}},
+    {status:"rejected",configuration:{id:5,isBlocking:false,isEnabled:true,isDeleted:false,type:{displayName:"Status"}}}]' > "$home/ado/policies.json"
+  jq -n '{value:[
+    {id:7,comments:[{id:1,commentType:"system",author:{id:"bot",uniqueName:"bot@example.com"},content:"policy updated",lastUpdatedDate:"2026-09-16T08:00:00Z"}]},
+    {id:8,threadContext:null,comments:[
+      {id:1,commentType:"text",author:{id:"author-id",uniqueName:"author@example.com"},content:"my own note",lastUpdatedDate:"2026-09-16T08:01:00Z"},
+      {id:2,commentType:"text",author:{id:"rev-id",uniqueName:"reviewer@example.com"},content:"Please clarify the contract",lastUpdatedDate:"2026-09-16T08:02:00Z"}]},
+    {id:9,isDeleted:true,comments:[{id:1,commentType:"text",author:{id:"rev-id",uniqueName:"reviewer@example.com"},content:"deleted",lastUpdatedDate:"2026-09-16T08:03:00Z"}]}]}' > "$home/ado/threads.json"
+  cat > "$home/fakebin/az" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FORGE/az-calls"
+case "$1 $2 $3" in
+  'repos pr show')
+    n=$(cat "$FORGE/show-count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$FORGE/show-count"
+    if [ "$n" -ge 2 ] && [ -e "$FORGE/../ado/after.json" ]; then cat "$FORGE/../ado/after.json"; else cat "$FORGE/../ado/pr.json"; fi ;;
+  'repos pr policy') cat "$FORGE/../ado/policies.json" ;;
+  'devops invoke '*) cat "$FORGE/../ado/threads.json" ;;
+  *) printf 'unexpected az fixture call: %s\n' "$*" >&2; exit 1 ;;
+esac
+SH
+  chmod +x "$home/fakebin/az"
+}
+
+test_ado_observation_and_signals() {
+  local home out count
+  home=$(new_home ado-observed)
+  ado_home "$home"
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed on an Azure DevOps pull request'
+  jq -e --arg head "$HEAD_A" --arg url "$ADO_PR_URL" '.records[0] | .url == $url and .kind == "pr" and .error == null
+    and .observation.head == $head and .observation.state == "open" and .observation.draft == false
+    and .observation.mergeable == "mergeable" and .observation.review_decision == ""
+    and (.observation.checks | map(.name) | length == 3 and (unique | length) == 3)
+    and all(.observation.checks[]; .conclusion == "success")
+    and (.observation.events | length) == 1 and .observation.events[0].author == "reviewer@example.com"
+    and .observation.events[0].source == ($url + "?discussionId=8") and (.pending | length) == 1' \
+    "$home/data/adodeliv/contributions.json" >/dev/null \
+    || fail "the Azure DevOps observation is wrong: $(cat "$home/data/adodeliv/contributions.json")"
+  grep -Fq 'repos pr show --id 5 --org https://dev.azure.com/o' "$home/forge/az-calls" \
+    || fail 'the pull request was not read by id and organization'
+  grep -Fq 'project=Proj%20X repositoryId=r pullRequestId=5' "$home/forge/az-calls" \
+    || fail 'the threads were not addressed by the encoded project and repository'
+  [ "$(awk 'END { print NR }' "$home/state/.wake-queue")" = 1 ] || fail 'one new comment must enqueue exactly one wake'
+  count=$(wc -l < "$home/state/.wake-queue")
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" poll >/dev/null
+  [ "$(wc -l < "$home/state/.wake-queue")" = "$count" ] || fail 're-poll duplicated an already enqueued Azure DevOps signal'
+  out=$(bearings "$home") || fail 'Bearings could not read the Azure DevOps record'
+  printf '%s' "$out" | jq -e '.contributions.unmeasured == 0' >/dev/null \
+    || fail "an Azure DevOps pull request must be measured, not unmeasured: $out"
+  pass 'an Azure DevOps pull request is observed through az and its human comment wakes once'
+}
+
+test_ado_failing_and_stale_policies_are_not_green() {
+  local home
+  home=$(new_home ado-policies)
+  ado_home "$home"
+  jq --arg stale "$HEAD_B" '.[3].context.lastMergeSourceCommitId = $stale | .[1].status = "rejected" | .[2].status = "queued"' \
+    "$home/ado/policies.json" > "$home/ado/p.json" && mv "$home/ado/p.json" "$home/ado/policies.json"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" poll >/dev/null || fail 'poll failed'
+  jq -e '[.records[0].observation.checks[] | {key:(.id | tostring), value:.conclusion}] | from_entries
+    == {"2":"failure","3":null,"4":null}' "$home/data/adodeliv/contributions.json" >/dev/null \
+    || fail "a rejected policy must fail, and a queued one or a build at another head must have no verdict: $(cat "$home/data/adodeliv/contributions.json")"
+  pass 'rejected, queued, and stale-head Azure DevOps policies are never green'
+}
+
+test_ado_unmet_reviewer_policy_is_review_required() {
+  local home out
+  home=$(new_home ado-review-required)
+  ado_home "$home"
+  jq '.[0].status = "queued" | .[0].configuration.type.id = "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd"
+    | .[0].configuration.type.displayName = "renamed"' \
+    "$home/ado/policies.json" > "$home/ado/p.json" && mv "$home/ado/p.json" "$home/ado/policies.json"
+  jq -n '{value:[]}' > "$home/ado/threads.json"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" poll >/dev/null || fail 'poll failed'
+  jq -e '.records[0].observation | .review_decision == "REVIEW_REQUIRED"
+    and all(.checks[]; .id != 1 and .conclusion == "success")' "$home/data/adodeliv/contributions.json" >/dev/null \
+    || fail "an unmet reviewer policy must be a review requirement, not a check: $(cat "$home/data/adodeliv/contributions.json")"
+  with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$home/input.json" \
+    || fail 'could not collect contribution input'
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" snapshot "$home/input.json" --all) \
+    || fail 'could not project the Azure DevOps delivery'
+  printf '%s' "$out" | jq -e '.rows[0] | .actor == "maintainer" and .reason == "review required"
+    and .failed_checks == 0 and .pending_checks == 0' >/dev/null \
+    || fail "a pull request waiting only on a reviewer policy must be maintainer work: $out"
+  pass 'an unmet Azure DevOps reviewer policy reads as review required, not as a check'
+}
+
+test_ado_rejection_and_other_repository_and_moved_head() {
+  local home out
+  home=$(new_home ado-faults)
+  ado_home "$home"
+  jq '.reviewers = [{vote:-10}]' "$home/ado/pr.json" > "$home/ado/p.json" && mv "$home/ado/p.json" "$home/ado/pr.json"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" poll >/dev/null || fail 'poll failed'
+  jq -e '.records[0].observation.review_decision == "CHANGES_REQUESTED"' "$home/data/adodeliv/contributions.json" >/dev/null \
+    || fail 'a reviewer rejection must request changes'
+
+  home=$(new_home ado-other-repo)
+  ado_home "$home"
+  jq '.repository.name = "other"' "$home/ado/pr.json" > "$home/ado/p.json" && mv "$home/ado/p.json" "$home/ado/pr.json"
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed on a mismatched repository'
+  [ "$out" = "contributions: observation unavailable for $ADO_PR_URL" ] \
+    || fail "a pull request in another repository was observed as this one: $out"
+
+  home=$(new_home ado-moved)
+  ado_home "$home"
+  jq --arg head "$HEAD_B" '.lastMergeSourceCommit.commitId = $head' "$home/ado/pr.json" > "$home/ado/after.json"
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed on a moved head'
+  [ "$out" = "contributions: observation unavailable for $ADO_PR_URL" ] \
+    || fail "a head that changed during observation was recorded as one read: $out"
+  pass 'an Azure DevOps rejection is a change request, and a foreign or moving pull request is never recorded'
+}
+
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_ado_observation_and_signals test_ado_failing_and_stale_policies_are_not_green test_ado_unmet_reviewer_policy_is_review_required test_ado_rejection_and_other_repository_and_moved_head; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"

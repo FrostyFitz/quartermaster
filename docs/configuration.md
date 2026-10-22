@@ -992,6 +992,7 @@ A cmux home is therefore never told `tmux` is missing, and the `treehouse` durab
 **Feature-specific requirements**
 
 - When `config/crew-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
+- A project hosted on Azure DevOps needs, per user, the `az` CLI, its `azure-devops` extension (`az extension add --name azure-devops`), and `az login`; `bin/fm-pr-check.sh` and `bin/fm-pr-merge.sh` refuse naming `az` or `jq` when absent, and the registry carries no forge binding and no token for it (no-mistakes drives its pull requests), see [`docs/azure-devops-pr-provider.md`](azure-devops-pr-provider.md).
 
 **Missing-tool diagnostics**
 

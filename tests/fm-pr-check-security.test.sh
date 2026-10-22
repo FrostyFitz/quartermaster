@@ -246,6 +246,25 @@ printf '{"ok":true,"op":"show","count":1,"missing":[],"changes":[{"change":%s,"s
   "${FM_TEST_GERRIT_REVISION:-5f07a68436929a527ddc7abadc8ef1abceae40ed}" \
   "${FM_TEST_GERRIT_URL:-https://gerrit.example/c/group/apps/console/+/4201}"
 SH
+  # az with the azure-devops extension: `repos pr show` answers a JSON record, or
+  # the three-line tsv the poll's own --query selects, and a non-zero exit with no
+  # stdout is any failure.
+  cat > "$fakebin/az" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_TEST_AZ_LOG"
+[ "${FM_TEST_AZ_FAIL:-0}" = 0 ] || exit 1
+case "$1 $2 $3" in
+  'repos pr show')
+    case " $* " in
+      *' -o tsv '*)
+        printf '%s\n%s\n%s\n' "${FM_TEST_AZ_STATUS:-active}" "${FM_TEST_AZ_PROJECT:-Firmware DevOps}" "${FM_TEST_AZ_REPO:-mt-base}" ;;
+      *)
+        printf '{"pullRequestId":%s,"status":"%s","isDraft":%s,"repository":{"name":"%s","project":{"name":"%s"}}}\n' \
+          "${FM_TEST_AZ_ID:-9}" "${FM_TEST_AZ_STATUS:-active}" "${FM_TEST_AZ_DRAFT:-false}" \
+          "${FM_TEST_AZ_REPO:-mt-base}" "${FM_TEST_AZ_PROJECT:-Firmware DevOps}" ;;
+    esac ;;
+esac
+SH
   # no-mistakes, answering only `axi status` the way the real CLI does from a
   # worker copy: a run object, then its branch_sync block. By default the run's
   # result is the copy's own passed HEAD and custody is returned; a case
@@ -266,12 +285,13 @@ if [ -n "${FM_TEST_NM_NEXT_ACTION:-}" ]; then
   printf '  next_action:\n    code: %s\n    command: no-mistakes axi status\n' "$FM_TEST_NM_NEXT_ACTION"
 fi
 SH
-  chmod +x "$fakebin/gh" "$fakebin/gh-axi" "$fakebin/glab" "$fakebin/gerrit-axi"
+  chmod +x "$fakebin/gh" "$fakebin/gh-axi" "$fakebin/glab" "$fakebin/gerrit-axi" "$fakebin/az"
   chmod +x "$fakebin/no-mistakes"
   : > "$dir/gh.log"
   : > "$dir/gh-axi.log"
   : > "$dir/glab.log"
   : > "$dir/gerrit-axi.log"
+  : > "$dir/az.log"
   : > "$dir/guard.log"
   printf '%s\n' "$dir"
 }
@@ -307,7 +327,7 @@ run_check_entry() {
   FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
     FM_TEST_GUARD_LOG="$dir/guard.log" FM_TEST_GH_LOG="$dir/gh.log" \
     FM_TEST_GH_AXI_LOG="$dir/gh-axi.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
-    FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" \
+    FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" FM_TEST_AZ_LOG="$dir/az.log" \
     PATH="$dir/fakebin:$BASE_PATH" \
     "$PR_CHECK" "$@"
 }
@@ -318,7 +338,7 @@ run_merge_entry() {
   FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
     FM_TEST_GUARD_LOG="$dir/guard.log" FM_TEST_GH_LOG="$dir/gh.log" \
     FM_TEST_GH_AXI_LOG="$dir/gh-axi.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
-    FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" \
+    FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" FM_TEST_AZ_LOG="$dir/az.log" \
     PATH="$dir/fakebin:$BASE_PATH" \
     "$PR_MERGE" "$@"
 }
@@ -367,6 +387,32 @@ INVALID_URLS=(
   'http://gerrit.example/c/proj/+/1'
   'https://github.com/c/proj/+/1'
   'https://gerrit.example/c/proj/+/1 '
+  'https://dev.azure.com/o/p/_git/r/pullrequest/0'
+  'https://dev.azure.com/o/p/_git/r/pullrequest/01'
+  'https://dev.azure.com/o/p/_git/r/pullrequest/1/'
+  'https://dev.azure.com/o/p/_git/r/pullrequest/1?_a=overview'
+  'https://dev.azure.com/o/p/_git/r/pullrequest/1#c'
+  'https://dev.azure.com/o/_git/r/pullrequest/1'
+  'https://dev.azure.com/o/p/q/_git/r/pullrequest/1'
+  'https://dev.azure.com/o/p/_git/r/s/pullrequest/1'
+  'https://dev.azure.com/o/p/_git/r/pull/1'
+  'https://dev.azure.com/-o/p/_git/r/pullrequest/1'
+  'https://dev.azure.com/o-/p/_git/r/pullrequest/1'
+  'https://dev.azure.com/o_x/p/_git/r/pullrequest/1'
+  'https://dev.azure.com/o/p%2Fq/_git/r/pullrequest/1'
+  'https://dev.azure.com/o/p%5Cq/_git/r/pullrequest/1'
+  'https://dev.azure.com/o/p%0Aq/_git/r/pullrequest/1'
+  'https://dev.azure.com/o/p%2/_git/r/pullrequest/1'
+  'https://dev.azure.com/o/p%zz/_git/r/pullrequest/1'
+  'https://dev.azure.com/o/../_git/r/pullrequest/1'
+  'https://dev.azure.com/o/p/_git/../pullrequest/1'
+  'https://dev.azure.com/o/p q/_git/r/pullrequest/1'
+  'https://dev.azure.com:443/o/p/_git/r/pullrequest/1'
+  'https://user@dev.azure.com/o/p/_git/r/pullrequest/1'
+  'https://DEV.azure.com/o/p/_git/r/pullrequest/1'
+  'http://dev.azure.com/o/p/_git/r/pullrequest/1'
+  'https://o.visualstudio.com/p/_git/r/pullrequest/1'
+  'https://dev.azure.com.evil.example/o/p/_git/r/pullrequest/1'
   'https://github.com/o/r/pull/1/'
   ' https://github.com/o/r/pull/1'
   'https://github.com/o/r/pull/1 '
@@ -520,6 +566,24 @@ https://review.internal/c/group/apps/console/+/4201|review.internal|group/apps/c
 https://gerrit.example/c/proj/+/1|gerrit.example|proj|1
 https://gerrit.example.co.uk/c/a/b/c/d/+/42|gerrit.example.co.uk|a/b/c/d|42
 https://review.internal/c/All-Projects/+/123456|review.internal|All-Projects|123456
+EOF
+  # An Azure DevOps path keeps the project and repository percent-encoded as the
+  # URL spells them, because that encoded form is what addresses them.
+  while IFS='|' read -r url path number; do
+    [ -n "$url" ] || continue
+    fm_pr_url_parse "$url" || fail "parser rejected a canonical Azure DevOps URL"
+    [ "$FM_PR_PROVIDER" = azuredevops ] || fail "parser did not tag an Azure DevOps URL as azuredevops"
+    [ "$FM_PR_URL" = "$url" ] || fail "parser changed a canonical Azure DevOps URL"
+    [ "$FM_PR_HOST" = dev.azure.com ] || fail "parser returned wrong Azure DevOps host"
+    [ "$FM_PR_PATH" = "$path" ] || fail "parser returned wrong Azure DevOps path"
+    [ "$FM_PR_NUMBER" = "$number" ] || fail "parser returned wrong Azure DevOps pull request number"
+    [ -z "$FM_PR_OWNER" ] && [ -z "$FM_PR_REPO" ] \
+      || fail "parser set GitHub owner/repository for an Azure DevOps URL"
+  done <<'EOF'
+https://dev.azure.com/MilwaukeeElectricTool/Firmware%20DevOps/_git/mt-base/pullrequest/58442|MilwaukeeElectricTool/Firmware%20DevOps/_git/mt-base|58442
+https://dev.azure.com/o/p/_git/r/pullrequest/1|o/p/_git/r|1
+https://dev.azure.com/my-org/My_Proj.x~y/_git/repo-name_with.parts/pullrequest/123456|my-org/My_Proj.x~y/_git/repo-name_with.parts|123456
+https://dev.azure.com/o/%E2%82%AC%20proj/_git/r%C3%A9po/pullrequest/7|o/%E2%82%AC%20proj/_git/r%C3%A9po|7
 EOF
   fm_pr_url_parse https://github.com/a/b/pull/1 || fail "parser rejected canonical URL"
   [ "$FM_PR_PROVIDER" = github ] || fail "parser did not tag a pull request URL as github"
@@ -944,7 +1008,7 @@ make_poll_fixture() {
 run_poll() {
   local dir=$1
   FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
-    FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" \
+    FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" FM_TEST_AZ_LOG="$dir/az.log" \
     PATH="$dir/fakebin:$BASE_PATH" \
     bash "$dir/home/state/task-a.check.sh"
 }
@@ -1544,6 +1608,139 @@ SH
   done
 
   pass "teardown removes safe poll artifacts and refuses directory-shaped check files without traversal"
+}
+
+# The Azure DevOps poll reads status by id and organization through az and
+# compares the record's project and repository with the URL's, because a pull
+# request id is unique per organization, not per repository.
+test_azuredevops_merge_watch() {
+  local dir state out rc url value tool notool entry bindir name
+  dir=$(make_case azuredevops-merge-watch)
+  state="$dir/home/state"
+  url='https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9'
+  write_poll_meta "$state" task-a "$url"
+  fm_pr_poll_prepare "$state" task-a azuredevops "$url" dev.azure.com \
+    'exampleorg/Firmware%20DevOps/_git/mt-base' 9 "$POLL" \
+    || fail "could not prepare an Azure DevOps poll"
+  fm_pr_poll_publish_prepared || fail "could not publish an Azure DevOps poll"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "published Azure DevOps poll provenance or metadata binding was invalid"
+  [ "$(cat "$state/task-a.pr-poll")" = "azuredevops
+$url
+dev.azure.com
+exampleorg/Firmware%20DevOps/_git/mt-base
+9" ] || fail "published Azure DevOps sidecar bytes were not exact"
+
+  # Only the exact status completed wakes. An abandoned pull request, another
+  # spelling, and an unreadable status all stay silent.
+  for value in active abandoned Completed COMPLETED completed-later notSet ''; do
+    out=$(FM_TEST_AZ_STATUS="$value" run_poll "$dir")
+    [ -z "$out" ] || fail "Azure DevOps poll emitted for status '$value'"
+  done
+  out=$(FM_TEST_AZ_STATUS=completed run_poll "$dir")
+  [ "$out" = merged ] || fail "Azure DevOps poll did not emit exactly one merged line"
+  out=$(FM_TEST_AZ_STATUS=completed FM_TEST_AZ_PROJECT='firmware devops' FM_TEST_AZ_REPO=MT-BASE run_poll "$dir")
+  [ "$out" = merged ] || fail "Azure DevOps poll compared names with case sensitivity"
+  out=$(FM_TEST_AZ_FAIL=1 FM_TEST_AZ_STATUS=completed run_poll "$dir")
+  [ -z "$out" ] || fail "Azure DevOps poll emitted after an az failure"
+
+  # A same-numbered pull request in another repository or project of the
+  # organization can never wake this task's poll.
+  out=$(FM_TEST_AZ_STATUS=completed FM_TEST_AZ_REPO=other-repo run_poll "$dir")
+  [ -z "$out" ] || fail "Azure DevOps poll emitted for another repository's pull request"
+  out=$(FM_TEST_AZ_STATUS=completed FM_TEST_AZ_PROJECT='Other Project' run_poll "$dir")
+  [ -z "$out" ] || fail "Azure DevOps poll emitted for another project's pull request"
+
+  # az is addressed by the id and the organization alone, never by the URL.
+  grep -qF -- "repos pr show --id 9 --org https://dev.azure.com/exampleorg " "$dir/az.log" \
+    || fail "Azure DevOps poll did not address az by id and organization"
+  ! grep -qF -- "$url" "$dir/az.log" || fail "Azure DevOps poll passed a pull request URL to az"
+
+  # An absent az produces no wake rather than a false merge, and arming is where
+  # a missing tool is reported.
+  for tool in az jq; do
+    notool="$dir/no-$tool"
+    rm -rf "$notool"
+    mkdir -p "$notool"
+    while IFS= read -r bindir; do
+      [ -d "$bindir" ] || continue
+      for entry in "$bindir"/*; do
+        [ -e "$entry" ] || continue
+        name=$(basename "$entry")
+        [ "$name" = "$tool" ] && continue
+        [ -e "$notool/$name" ] || ln -s "$entry" "$notool/$name" 2>/dev/null
+      done
+    done <<EOF
+$dir/fakebin
+$(printf '%s\n' "$BASE_PATH" | tr ':' '\n')
+EOF
+    ! PATH="$notool" command -v "$tool" >/dev/null 2>&1 \
+      || fail "the $tool-free search path still resolved $tool"
+    if [ "$tool" = az ]; then
+      out=$(FM_TEST_AZ_STATUS=completed FM_TEST_AZ_LOG="$dir/az.log" PATH="$notool" bash "$state/task-a.check.sh")
+      [ -z "$out" ] || fail "Azure DevOps poll emitted with az absent from PATH"
+    fi
+    write_task_meta "$dir" "task-no-$tool"
+    set +e
+    out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
+      FM_TEST_GUARD_LOG="$dir/guard.log" PATH="$notool" \
+      "$PR_CHECK" "task-no-$tool" "$url" 2>&1)
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ] || fail "arming an Azure DevOps watch succeeded with $tool absent"
+    case "$out" in
+      *"requires $tool on PATH"*) ;;
+      *) fail "arming an Azure DevOps watch with $tool absent did not report the missing CLI" ;;
+    esac
+    [ ! -e "$state/task-no-$tool.check.sh" ] || fail "refused Azure DevOps arming left a poll armed"
+  done
+
+  # A doctored sidecar cannot redirect the poll: the stored parts must rebuild
+  # the stored URL exactly, and every part must still be valid by itself.
+  for value in \
+    "dev.azure.com|otherorg/Firmware%20DevOps/_git/mt-base|9" \
+    "dev.azure.com|exampleorg/Other/_git/mt-base|9" \
+    "dev.azure.com|exampleorg/Firmware%20DevOps/_git/other|9" \
+    "dev.azure.com|exampleorg/Firmware%20DevOps/_git/mt-base|10" \
+    "dev.azure.com|exampleorg/Firmware%20DevOps/_notgit/mt-base|9" \
+    "elsewhere.example|exampleorg/Firmware%20DevOps/_git/mt-base|9"; do
+    printf '%s\n%s\n%s\n%s\n%s\n' azuredevops "$url" "${value%%|*}" "$(printf '%s' "$value" | cut -d'|' -f2)" "${value##*|}" \
+      > "$state/task-a.pr-poll"
+    out=$(FM_TEST_AZ_STATUS=completed run_poll "$dir")
+    [ -z "$out" ] || fail "Azure DevOps poll emitted for a doctored sidecar: $value"
+  done
+  pass "the Azure DevOps watch wakes only on status completed for the exact pull request it names"
+}
+
+test_azuredevops_arming() {
+  local dir rc url
+  url='https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9'
+  dir=$(make_case ado-draft-refused)
+  write_task_meta "$dir"
+  cp "$dir/home/state/task-a.meta" "$dir/meta.before"
+  set +e
+  FM_TEST_AZ_DRAFT=true run_check_entry "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr"; rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "arming accepted a draft Azure DevOps pull request"
+  grep -qi 'draft' "$dir/stderr" || fail "the refusal did not name the draft state"
+  grep -qF "$url" "$dir/stderr" || fail "the refusal did not name the pull request"
+  cmp -s "$dir/meta.before" "$dir/home/state/task-a.meta" || fail "a refused draft changed the task metadata"
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused draft armed a poll"
+
+  dir=$(make_case ado-armed)
+  write_task_meta "$dir"
+  run_check_entry "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "arming refused an Azure DevOps pull request that is not a draft: $(cat "$dir/stderr")"
+  grep -qxF "pr=$url" "$dir/home/state/task-a.meta" || fail "an Azure DevOps pull request was not recorded"
+  ! grep -q '^pr_head=' "$dir/home/state/task-a.meta" || fail "an Azure DevOps task recorded a pr_head"
+  [ -f "$dir/home/state/task-a.check.sh" ] || fail "an Azure DevOps pull request was not armed"
+  [ "$(sed -n 1p "$dir/home/state/task-a.pr-poll")" = azuredevops ] || fail "the sidecar did not carry the provider tag"
+
+  dir=$(make_case ado-foreign-record-is-not-a-draft)
+  write_task_meta "$dir"
+  FM_TEST_AZ_REPO=elsewhere FM_TEST_AZ_DRAFT=true run_check_entry "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "a record that is not this pull request must not count as its draft state"
+  pass "arming refuses a draft Azure DevOps pull request and arms a ready one without a recorded head"
 }
 
 # The Gerrit watch must follow a change exactly as the GitHub watch follows a
@@ -3442,6 +3639,8 @@ SH
 test_parser_matrix
 test_gitlab_merge_watch
 test_gerrit_merge_watch
+test_azuredevops_merge_watch
+test_azuredevops_arming
 test_gerrit_arming_records_no_patch_set_revision
 test_gerrit_ready_gate_reads_the_published_tree
 test_gerrit_nm_ready_gate_requires_recovered_custody

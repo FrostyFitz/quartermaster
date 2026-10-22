@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Static watcher program for a validated pull request, merge request, or Gerrit
-# change poll sidecar.
+# Static watcher program for a validated pull request, merge request, Gerrit
+# change, or Azure DevOps pull request poll sidecar.
 # It emits exactly one merged line for a merged change and stays silent
 # otherwise, including on every error, so a failed lookup can never be read as
 # a merge. The provider-tagged identity is data in the sidecar and is never
 # interpolated into this source: these bytes are identical for every task.
 # Each provider is read through its own standard CLI, gh for GitHub, glab for
-# GitLab, and gerrit-axi for Gerrit, so an upstream checkout needs no extra
-# tooling to follow the first two. The Gerrit branch additionally needs jq,
-# which bin/fm-pr-check.sh refuses to arm a Gerrit watch without.
+# GitLab, gerrit-axi for Gerrit, and az with the azure-devops extension for
+# Azure DevOps, so an upstream checkout needs no extra tooling to follow the
+# first two. The Gerrit branch additionally needs jq, which bin/fm-pr-check.sh
+# refuses to arm a Gerrit watch without.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -170,6 +171,50 @@ case "$provider" in
         error("invalid gerrit record")
       end' 2>/dev/null) || exit 0
     [ "$status" = MERGED ] && printf '%s\n' merged
+    ;;
+  azuredevops)
+    [ "$host" = dev.azure.com ] || exit 0
+    # <organization>/<project>/_git/<repository>, the project and repository
+    # kept percent-encoded exactly as the URL spells them.
+    org=${path%%/*}
+    rest=${path#*/}
+    project=${rest%%/*}
+    rest=${rest#*/}
+    [ "${rest%%/*}" = _git ] || exit 0
+    repo=${rest#*/}
+    [ "${#org}" -ge 1 ] && [ "${#org}" -le 50 ] || exit 0
+    case "$org" in
+      *[!A-Za-z0-9-]*|-*|*-) exit 0 ;;
+    esac
+    for segment in "$project" "$repo"; do
+      [ "${#segment}" -ge 1 ] && [ "${#segment}" -le 512 ] || exit 0
+      case "$segment" in
+        .|..|-*|*/*|*%2[Ff]*|*%5[Cc]*|*%0*|*%1*|*%[!0-9A-Fa-f]*|*%[0-9A-Fa-f]|*%|*[!A-Za-z0-9._~%-]*) exit 0 ;;
+      esac
+    done
+    [ "$url" = "https://dev.azure.com/$path/pullrequest/$number" ] || exit 0
+    # A pull request id is unique within the organization, not within the
+    # repository, so az is addressed by the id and the organization alone and
+    # the record's own project and repository must then match the URL's, or a
+    # same-numbered pull request elsewhere in the organization would read as
+    # this one. az's own JMESPath query keeps this poll free of a JSON
+    # processor; three lines are expected and nothing else is accepted. Only
+    # the exact status "completed" - Azure DevOps's merged state - wakes.
+    project_decoded=$(printf '%b' "${project//%/\\x}") || exit 0
+    repo_decoded=$(printf '%b' "${repo//%/\\x}") || exit 0
+    raw=$(az repos pr show --id "$number" --org "https://dev.azure.com/$org" \
+      --only-show-errors --query '[status, repository.project.name, repository.name]' -o tsv 2>/dev/null) || exit 0
+    [ "$(printf '%s\n' "$raw" | wc -l | tr -d ' ')" = 3 ] || exit 0
+    {
+      IFS= read -r state
+      IFS= read -r rec_project
+      IFS= read -r rec_repo
+    } <<EOF_ADO
+$raw
+EOF_ADO
+    [ "$(printf '%s' "$rec_project" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$project_decoded" | tr '[:upper:]' '[:lower:]')" ] || exit 0
+    [ "$(printf '%s' "$rec_repo" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$repo_decoded" | tr '[:upper:]' '[:lower:]')" ] || exit 0
+    [ "$state" = completed ] && printf '%s\n' merged
     ;;
   *) exit 0 ;;
 esac

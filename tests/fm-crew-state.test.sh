@@ -180,6 +180,19 @@ case "${1:-} ${2:-}" in
 esac
 exit 1
 SH
+  cat > "$fb/az" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-} ${2:-} ${3:-}" in
+  "repos pr show")
+    [ -z "${FM_FAKE_AZ_READ_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_AZ_READ_LOG"
+    [ "${FM_FAKE_AZ_READ_FAIL:-0}" = 1 ] && exit 1
+    printf '{"pullRequestId":%s,"status":"%s","repository":{"name":"repo","project":{"name":"Firmware DevOps"}}}\n' \
+      "${5:-0}" "${FM_FAKE_AZ_STATE:-completed}"
+    exit 0 ;;
+esac
+exit 1
+SH
   cat > "$fb/gerrit-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -276,7 +289,7 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  chmod +x "$fb/no-mistakes" "$fb/gh" "$fb/gh-axi" "$fb/glab" "$fb/gerrit-axi" "$fb/tmux" "$fb/herdr"
+  chmod +x "$fb/no-mistakes" "$fb/gh" "$fb/gh-axi" "$fb/glab" "$fb/az" "$fb/gerrit-axi" "$fb/tmux" "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -346,6 +359,9 @@ reset_fakes() {
   FM_FAKE_GLAB_STATE=merged
   FM_FAKE_GLAB_READ_FAIL=0
   FM_FAKE_GLAB_READ_LOG=
+  FM_FAKE_AZ_STATE=completed
+  FM_FAKE_AZ_READ_FAIL=0
+  FM_FAKE_AZ_READ_LOG=
   FM_FAKE_GERRIT_STATUS=MERGED
   FM_FAKE_GERRIT_CHANGE=
   FM_FAKE_GERRIT_URL_JSON=
@@ -358,6 +374,7 @@ reset_fakes() {
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
   export FM_FAKE_PR_STATE FM_FAKE_PR_MERGED FM_FAKE_PR_READ_FAIL FM_FAKE_PR_READ_LOG FM_FAKE_PR_STATE_AXI
   export FM_FAKE_GLAB_STATE FM_FAKE_GLAB_READ_FAIL FM_FAKE_GLAB_READ_LOG
+  export FM_FAKE_AZ_STATE FM_FAKE_AZ_READ_FAIL FM_FAKE_AZ_READ_LOG
   export FM_FAKE_GERRIT_STATUS FM_FAKE_GERRIT_CHANGE FM_FAKE_GERRIT_URL_JSON
   export FM_FAKE_GERRIT_READ_FAIL FM_FAKE_GERRIT_READ_LOG
   export FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
@@ -1598,6 +1615,64 @@ test_terminal_passed_with_failed_gitlab_read_reports_unknown() {
   assert_contains "$out" "run passed: PR state unknown (unreadable)" "failed GitLab read is honest unknown"
   assert_not_contains "$out" "PR merged" "failed GitLab read must not be reported merged"
   pass "terminal passed run handles failed GitLab read"
+}
+
+test_terminal_passed_with_azuredevops_pull_request_reports_its_state() {
+  reset_fakes
+  local d url read_log out state expected
+  url='https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/repo/pullrequest/12'
+  for state in active abandoned completed; do
+    case "$state" in
+      active) expected="run passed: PR open" ;;
+      abandoned) expected="run passed: PR closed" ;;
+      completed) expected="run passed: PR merged" ;;
+    esac
+    d=$(new_case "passed-azuredevops-$state")
+    make_repo_on_branch "$d/wt" fm/feat-dado
+    make_fakebin "$d" >/dev/null
+    fm_write_meta "$d/state/feat-dado.meta" "window=fm:fm-feat-dado" \
+      "worktree=$d/wt" "kind=ship" "pr=$url"
+    read_log="$d/az-read.log"
+    : > "$read_log"
+    FM_FAKE_AZ_READ_LOG=$read_log
+    FM_FAKE_AZ_STATE=$state
+    FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dado "$url")"
+    out=$(run_crew_state "$d" feat-dado)
+    assert_contains "$out" "$expected" "Azure DevOps $state pull request state is named"
+    assert_grep 'repos pr show --id 12 --org https://dev.azure.com/exampleorg' "$read_log" \
+      "Azure DevOps read addresses the pull request by id and organization"
+    reset_fakes
+  done
+  pass "terminal passed run reads Azure DevOps pull request state"
+}
+
+test_terminal_passed_with_unreadable_azuredevops_pull_request_reports_unknown() {
+  reset_fakes
+  local d url out
+  url='https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/repo/pullrequest/13'
+  d=$(new_case passed-unreadable-azuredevops)
+  make_repo_on_branch "$d/wt" fm/feat-dadounk
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-dadounk.meta" "window=fm:fm-feat-dadounk" \
+    "worktree=$d/wt" "kind=ship" "pr=$url"
+  FM_FAKE_AZ_READ_FAIL=1
+  FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dadounk "$url")"
+  out=$(run_crew_state "$d" feat-dadounk)
+  assert_contains "$out" "run passed: PR state unknown (unreadable)" "failed Azure DevOps read is honest unknown"
+  assert_not_contains "$out" "PR merged" "failed Azure DevOps read must not be reported merged"
+
+  # A pull request in another repository of the organization is not this one.
+  reset_fakes
+  d=$(new_case passed-foreign-azuredevops)
+  make_repo_on_branch "$d/wt" fm/feat-dadofor
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-dadofor.meta" "window=fm:fm-feat-dadofor" \
+    "worktree=$d/wt" "kind=ship" "pr=https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/other/pullrequest/13"
+  FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dadofor https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/other/pullrequest/13)"
+  out=$(run_crew_state "$d" feat-dadofor)
+  assert_contains "$out" "run passed: PR state unknown (unreadable)" "a record from another repository is unknown"
+  assert_not_contains "$out" "PR merged" "a record from another repository must not be reported merged"
+  pass "terminal passed run handles unreadable and foreign Azure DevOps pull requests"
 }
 
 test_terminal_passed_with_open_gerrit_change_does_not_claim_merged() {
@@ -5554,6 +5629,8 @@ test_terminal_passed_without_readable_pr_identity_reports_unknown
 test_terminal_passed_with_open_gitlab_mr_does_not_claim_merged
 test_terminal_passed_with_merged_gitlab_mr_reports_merged
 test_terminal_passed_with_failed_gitlab_read_reports_unknown
+test_terminal_passed_with_azuredevops_pull_request_reports_its_state
+test_terminal_passed_with_unreadable_azuredevops_pull_request_reports_unknown
 test_terminal_passed_with_open_gerrit_change_does_not_claim_merged
 test_terminal_passed_with_merged_gerrit_change_reports_merged
 test_terminal_passed_with_unreadable_gerrit_change_reports_unknown

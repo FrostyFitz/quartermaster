@@ -14,7 +14,15 @@
 # Every URL explicitly linked by a structured backlog row or a task's pr= is
 # owned. Previously observed URLs remain in data/<task>/contributions.json after
 # endpoint teardown. Repository-wide PR discovery never establishes ownership.
-# GitHub PRs and issues are supported; other forges remain visibly unmeasured.
+# GitHub PRs and issues and Azure DevOps pull requests are supported; other
+# forges remain visibly unmeasured.
+# An Azure DevOps pull request is read through az with the azure-devops
+# extension: a reviewer's rejection or wait, or an unmet blocking reviewer or
+# comment policy, is its review decision, its other blocking policy evaluations
+# are its checks, and every non-system comment by
+# someone other than the author is an incoming signal, because only members of
+# the organization can comment. It reports no reviews and no merge permission:
+# a vote carries no commit to judge freshness by, and the permission is not read.
 #
 # This script owns fm-contributions.v1: one atomic file per durable task with
 # task and records[]. Each record contains url, kind, checked_at, error,
@@ -207,7 +215,7 @@ forge() {
   [ "$remaining" -gt 0 ] || { BUDGET_EXHAUSTED=1; : > "$TMP/budget-exhausted"; return 1; }
   [ "$remaining" -le 5 ] || remaining=5
   fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
-    gh "$@" 2> "$forge_err" || rc=$?
+    "${FORGE_TOOL:-gh}" "$@" 2> "$forge_err" || rc=$?
   # A kill at the read bound or the deadline is budget refusal too; only the
   # forge's own nonzero exit is unavailable evidence.
   if [ "$rc" -eq 124 ]; then
@@ -230,9 +238,13 @@ wait_forges() { # background forge pids from one independent read wave
   return "$rc"
 }
 
-observe() { # canonical GitHub URL -> normalized JSON
+observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
   local url=$1 part number kind endpoint head after label
-  case "$url" in https://github.com/*) ;; *) return 1 ;; esac
+  case "$url" in
+    https://dev.azure.com/*) observe_ado "$url"; return ;;
+    https://github.com/*) ;;
+    *) return 1 ;;
+  esac
   part=${url#https://github.com/}; number=${part##*/}; part=${part%/*}; kind=${part##*/}; part=${part%/*}
   case "$kind" in pull) endpoint="repos/$part/pulls/$number" ;; issues) endpoint="repos/$part/issues/$number" ;; *) return 1 ;; esac
   rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable"
@@ -295,10 +307,85 @@ observe() { # canonical GitHub URL -> normalized JSON
           + [$timeline[0][] | .[] | select(.event == "labeled" and (.label.name | ascii_downcase) == ($label | ascii_downcase))
              | {token:("ready-for-pr:" + (.id | tostring)),type:"ready-for-pr",source:$c.html_url,head:null,body:"filed issue reached ready-for-pr"}])}' > "$TMP/observation.json" || return 1
   fi
-  jq_lib -ne --arg url "$url" --arg kind "$kind" --slurpfile observed "$TMP/observation.json" '
+  validate_observation "$url" "$kind"
+}
+
+validate_observation() { # canonical-url pull|issue
+  jq_lib -ne --arg url "$1" --arg kind "$2" --slurpfile observed "$TMP/observation.json" '
     {schema:"fm-contributions.v1",task:"observation",records:[{url:$url,
       kind:(if $kind == "pull" then "pr" else "issue" end),pending:[],seen:[],observation:$observed[0]}]}
     | valid_record' >/dev/null
+}
+
+# One Azure DevOps pull request, observed in the same three waves as a GitHub
+# one: the core record, then independent policy and thread reads, then the head
+# again so a push during the observation is an error rather than a mixed read.
+observe_ado() { # canonical Azure DevOps URL -> normalized JSON
+  local url=$1 path number org project repository head after policies_pid threads_pid
+  fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = azuredevops ] || return 1
+  path=$FM_PR_PATH
+  number=$FM_PR_NUMBER
+  org=$(fm_pr_ado_org_url "$path")
+  project=${path#*/}; project=${project%%/*}
+  repository=${path##*/}
+  rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable"
+  BUDGET_EXHAUSTED=0
+  FORGE_TOOL=az forge repos pr show --id "$number" --org "$org" --only-show-errors -o json > "$TMP/core.json" || return 1
+  fm_pr_ado_check_record "$path" "$number" < "$TMP/core.json" > "$TMP/core-checked.json" || return 1
+  head=$(jq -er '.lastMergeSourceCommit.commitId | select(test("^[a-fA-F0-9]{40}$"))' "$TMP/core-checked.json") || return 1
+  FORGE_ERR="$TMP/policies.err" FORGE_TOOL=az forge repos pr policy list --id "$number" --org "$org" \
+    --only-show-errors -o json > "$TMP/policies.json" &
+  policies_pid=$!
+  FORGE_ERR="$TMP/threads.err" FORGE_TOOL=az forge devops invoke --area git --resource pullRequestThreads \
+    --route-parameters "project=$project" "repositoryId=$repository" "pullRequestId=$number" \
+    --org "$org" --api-version 7.1 --only-show-errors -o json > "$TMP/threads.json" &
+  threads_pid=$!
+  wait_forges "$policies_pid" "$threads_pid" || return 1
+  jq -e 'type == "array"' "$TMP/policies.json" >/dev/null || return 1
+  jq -e 'type == "object" and (.value | type) == "array"' "$TMP/threads.json" >/dev/null || return 1
+  FORGE_TOOL=az forge repos pr show --id "$number" --org "$org" --only-show-errors -o json > "$TMP/after.json" || return 1
+  after=$(fm_pr_ado_check_record "$path" "$number" < "$TMP/after.json" | jq -er '.lastMergeSourceCommit.commitId') || return 1
+  [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
+  jq -n --arg url "$url" --slurpfile core "$TMP/core-checked.json" --slurpfile policies "$TMP/policies.json" \
+    --slurpfile threads "$TMP/threads.json" "$FM_PR_ADO_REVIEW_POLICY_JQ"'
+    $core[0] as $c
+    | $c.lastMergeSourceCommit.commitId as $head
+    | [$policies[0][]
+        | select(.configuration.isBlocking == true and .configuration.isEnabled == true and .configuration.isDeleted != true)] as $blocking
+    | {head:$head,
+        state:(if $c.status == "completed" then "merged" elif $c.status == "abandoned" then "closed" else "open" end),
+        draft:($c.isDraft == true),
+        mergeable:(if $c.mergeStatus == "succeeded" then "mergeable" elif $c.mergeStatus == "conflicts" then "conflicting" else "unknown" end),
+        # Merge permission is not read; the merge stays a captain call either way.
+        can_merge:true,
+        review_decision:(if any(($c.reviewers // [])[]; (.vote // 0) <= -5) then "CHANGES_REQUESTED"
+          elif any($blocking[]; ado_review_policy and (.status | IN("approved", "notApplicable") | not)) then "REVIEW_REQUIRED"
+          else "" end),
+        reviews:[],
+        checks:[$blocking[] | select(ado_review_policy | not)
+          | (.context // {}) as $x
+          | {name:((.configuration.type.displayName // "policy")
+                + (if $x.buildDefinitionName then " (" + $x.buildDefinitionName + ")" else "" end)
+                + " #" + (.configuration.id | tostring)),
+             id:.configuration.id, started_at:($x.buildStartedUtc // null),
+             status:(if (.status == "approved" or .status == "notApplicable")
+                       and ($x.isExpired != true) and (($x.lastMergeSourceCommitId // $head) == $head)
+                     then "completed"
+                     elif .status == "rejected" or .status == "broken" then "completed"
+                     else "in_progress" end),
+             conclusion:(if (.status == "approved" or .status == "notApplicable")
+                           and ($x.isExpired != true) and (($x.lastMergeSourceCommitId // $head) == $head)
+                         then "success"
+                         elif .status == "rejected" or .status == "broken" then "failure"
+                         else null end)}],
+        events:[$threads[0].value[] | select(.isDeleted != true) | . as $t
+          | $t.comments[]? | select(.commentType != "system" and .isDeleted != true
+              and (.author.id // .author.uniqueName) != ($c.createdBy.id // $c.createdBy.uniqueName))
+          | {token:("comment:" + ($t.id | tostring) + "-" + (.id | tostring) + ":" + (.lastUpdatedDate // .publishedDate // "")),
+             type:(if $t.threadContext != null then "review-comment" else "comment" end),
+             source:($url + "?discussionId=" + ($t.id | tostring)),head:null,
+             author:(.author.uniqueName // .author.displayName // "unknown"),body:((.content // "") | .[:500])}]}' > "$TMP/observation.json" || return 1
+  validate_observation "$url" pull
 }
 
 publish_pending() { # task canonical-url record-file
@@ -474,7 +561,7 @@ case "${1:-}" in
       [ "$#" -eq 4 ] || fail 'verdict needs judged-head, source-url, actor and summary'
       fm_pr_head_valid "$1" || fail 'an exact judged commit is required'
       case "$3" in captain|fleet|maintainer|nobody) ;; *) fail 'invalid required actor' ;; esac
-      case "$2" in "$url"\#*) ;; *) fail 'verdict source must be a comment or review on this contribution' ;; esac
+      case "$2" in "$url"\#*|"$url"\?discussionId=*) ;; *) fail 'verdict source must be a comment or review on this contribution' ;; esac
       jq --arg head "$1" --arg source "$2" --arg actor "$3" --arg summary "$4" \
         '.verdict={head:$head,source:$source,actor:$actor,summary:$summary}' "$TMP/row.json" > "$TMP/update.json"
     fi

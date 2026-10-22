@@ -62,7 +62,8 @@
 # The two PR-based blocks require a non-draft pull request before the done
 # report, read back from the forge; a lane that deliberately holds a draft
 # declares a paused wait instead. bin/fm-pr-check.sh refuses to arm merge
-# monitoring on a draft through the same reading bin/fm-pr-merge.sh uses.
+# monitoring on a draft through the same reading bin/fm-pr-merge.sh uses; an
+# Azure DevOps PR is read and marked ready through az instead of gh-axi.
 # This file is the one owner of the no-mistakes `--intent` contract: only the
 # brief's `## Captain's intent` subsection plus later captain words, never
 # `## Firstmate spec` and never the worker's own tradeoffs.
@@ -316,6 +317,14 @@ Two firstmate-specific rules layer on top of that guidance:
 EOF
 }
 
+# The draft read-back for a PR on Azure DevOps, where gh-axi does not apply. az
+# reads and clears the draft flag; the extension and az login are per-user
+# prerequisites docs/configuration.md owns.
+fm_ado_draft_line() {
+  # shellcheck disable=SC2016  # the backticks are literal markdown for the worker.
+  printf '%s' 'For an Azure DevOps PR (a dev.azure.com URL ending /pullrequest/<number>), read it back with `az repos pr show --id <number> --org https://dev.azure.com/<organization> --query isDraft -o tsv`, which must print `false`, and mark a draft ready with `az repos pr update --id <number> --org https://dev.azure.com/<organization> --draft false`.'
+}
+
 # How a worker on a forge=gerrit project publishes, shared by both publishing
 # modes so the one push, the Change-Id rule, and the ready report are written
 # once. gerrit-axi owns the squash mechanics; this names the one call and what
@@ -399,6 +408,7 @@ This task ships **direct-PR**: you raise the PR yourself, without the no-mistake
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft.
 Before you report done, read the PR back from the forge and confirm it is not a draft (\`gh-axi pr view <number>\` must print \`draft: no\`, where <number> is the PR number from your PR URL); if it is a draft, mark it ready with \`gh-axi pr ready <number>\`.
+$(fm_ado_draft_line)
 A draft cannot be merged, so a done report on one leaves the merge unasked.
 Then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
 That \`done:\` is accepted only when this copy's HEAD - your latest commit - is pushed to your PR branch; the check tests that commit, not merely that a branch moved.
@@ -434,6 +444,7 @@ EOF
       cat <<EOF
 
 After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), read the PR back from the forge and confirm it is not a draft (\`gh-axi pr view <number>\` must print \`draft: no\`, where <number> is the PR number from your PR URL); if it is a draft, mark it ready with \`gh-axi pr ready <number>\`.
+$(fm_ado_draft_line)
 A draft cannot be merged, so a done report on one leaves the merge unasked.
 Then append \`done [at=<epoch>]: PR {url} checks green\` and stop. You are finished.
 That CI-ready \`done:\` is accepted only when this copy's HEAD - your latest commit - is one the /no-mistakes run pushed, so commit nothing after the run; the check tests that commit, not merely that a branch moved.

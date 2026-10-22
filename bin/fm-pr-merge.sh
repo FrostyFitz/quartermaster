@@ -4,7 +4,10 @@
 # The full canonical URL is parsed by bin/fm-pr-lib.sh. A GitHub pull request is
 # addressed through gh by the derived owner and repository; a GitLab merge
 # request is addressed through glab by the project URL rebuilt from the parsed
-# host and path, so any instance works and no host is hardcoded. A Gerrit change
+# host and path, so any instance works and no host is hardcoded. An Azure DevOps
+# pull request is addressed through az, with the azure-devops extension and an
+# existing az login, by its id and the organization URL rebuilt from the parsed
+# path. A Gerrit change
 # is refused outright: that adapter is read-only, and the refusal at the parse
 # below owns why.
 #
@@ -96,6 +99,29 @@
 # recorded value stale. Reading that state needs glab and jq, and either one
 # absent stops the merge before any state is recorded.
 #
+# An Azure DevOps pull request is merged only after one live read of the pull
+# request and one of its policy evaluations confirm it is active, not a draft,
+# and free of merge conflicts, and every enabled policy that blocks completion is
+# approved or not applicable - so a blocking policy that is queued or running
+# refuses just as an unreported required check does on GitHub - with each build
+# policy having evaluated the exact current head. Every failing condition is
+# reported, not just the first. An unmet reviewer, required-reviewer, or
+# comment-requirement policy is reported as a review requirement rather than a
+# check. It is then completed with
+# az repos pr update --status completed, and --bypass-policy is never passed: it
+# is refused in the extra arguments on every path, attended or not, along with
+# any override of the id, organization, or status, in full or as any prefix az
+# would expand, and --allow-red and
+# --allow-missing do not apply. The pull request's own completion options
+# and branch policy choose the merge strategy, so a project that requires one
+# passes its az flag, for example --squash true, after the -- separator. Unlike gh
+# and glab, az cannot bind the completion to the verified head: a push landing
+# between the read and the completion is not refused, so the read-back after
+# completion compares the merged head with the verified one and reports any
+# difference as actionable. The completion is confirmed by reading the pull
+# request back, waiting a few attempts for status completed, and an unconfirmed
+# request leaves the poll armed and records no landed outcome.
+#
 # Before either forge merge, the task's existing per-task control lock
 # serializes the captain-hold check through the forge command. A still-held or
 # unreadable row refuses before that command, so a captain approval must be
@@ -129,15 +155,16 @@
 # from one task can each merge in turn; while the bound PR is still unmerged a
 # different URL is refused. Auto-merge (--auto), a protection bypass
 # (--admin), and branch
-# deletion (--delete-branch, -d and short-flag clusters, and GitLab's
-# --remove-source-branch) are refused by default; --attended-override, parsed
+# deletion (--delete-branch, -d and short-flag clusters, GitLab's
+# --remove-source-branch, and Azure DevOps's --auto-complete and
+# --delete-source-branch) are refused by default; --attended-override, parsed
 # before the optional -- separator, re-enables those forge flags for an
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
 # Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
 #
-# On GitLab, this script confirms the MR is actually merged before reporting it;
+# On GitLab and Azure DevOps, this script confirms the request is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
 # no landed outcome. bin/fm-merge-outcome-lib.sh owns a confirmed merge's
 # destination, normal-case deduplication, and at-least-once recovery.
@@ -181,6 +208,9 @@ PR_NUMBER=$FM_PR_NUMBER
 # glab resolves the instance from the project URL passed to -R, so the host is
 # rebuilt from the parsed identity rather than read from any ambient default.
 PROJECT_URL="https://$FM_PR_HOST/$FM_PR_PATH"
+# az addresses an Azure DevOps pull request by its id and organization URL.
+ADO_ORG_URL=
+[ "$PROVIDER" != azuredevops ] || ADO_ORG_URL=$(fm_pr_ado_org_url "$PR_PATH")
 # Firstmate never submits a Gerrit change, even though gerrit-axi can, so the
 # refusal is stated rather than left as a silently absent provider branch.
 # Submitting a Gerrit change means first recording a Code-Review+2, which is a
@@ -236,6 +266,10 @@ if [ "${#ALLOW_RED[@]}" -gt 0 ] && [ "$PROVIDER" = gitlab ]; then
 fi
 if [ "${#ALLOW_MISSING[@]}" -gt 0 ] && [ "$PROVIDER" = gitlab ]; then
   echo "error: --allow-missing does not apply to GitLab, where a merge already requires the head pipeline to have succeeded" >&2
+  exit 2
+fi
+if { [ "${#ALLOW_RED[@]}" -gt 0 ] || [ "${#ALLOW_MISSING[@]}" -gt 0 ]; } && [ "$PROVIDER" = azuredevops ]; then
+  echo "error: --allow-red and --allow-missing do not apply to Azure DevOps, where a merge already requires every blocking branch policy to be approved" >&2
   exit 2
 fi
 
@@ -325,8 +359,12 @@ reject_protected_forge_args() {
   local arg
   [ "$ATTENDED_OVERRIDE" = true ] && return 0
   for arg in "$@"; do
+    if [ "$PROVIDER" = azuredevops ] && ado_arg_abbreviates "$arg" auto-complete delete-source-branch; then
+      echo "error: extra merge arguments must not request auto-merge, a protection bypass, or branch deletion; pass --attended-override only for an explicit captain instruction" >&2
+      return 1
+    fi
     case "$arg" in
-      --auto|--auto=*|--admin|--admin=*|--delete-branch|--delete-branch=*|--remove-source-branch|--remove-source-branch=*)
+      --auto|--auto=*|--admin|--admin=*|--delete-branch|--delete-branch=*|--remove-source-branch|--remove-source-branch=*|--auto-complete|--auto-complete=*|--delete-source-branch|--delete-source-branch=*)
         echo "error: extra merge arguments must not request auto-merge, a protection bypass, or branch deletion; pass --attended-override only for an explicit captain instruction" >&2
         return 1
         ;;
@@ -341,8 +379,45 @@ reject_protected_forge_args() {
   done
 }
 
+# az parses with argparse, which accepts any unambiguous prefix of a long option
+# and lets the last value win, so --orga overrides --org exactly as --organization
+# would. True when the argument is a long option abbreviating any given name.
+ado_arg_abbreviates() {  # <arg> <name>...
+  local option=${1%%=*} name
+  shift
+  case "$option" in
+    --?*) option=${option#--} ;;
+    *) return 1 ;;
+  esac
+  for name in "$@"; do
+    case "$name" in
+      "$option"*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# az addresses the pull request by --id and --org alone, so those cannot be
+# redirected, the completion status is this script's own, and a policy bypass is
+# never available on any path, attended or not.
+reject_ado_overrides() {
+  local arg
+  [ "$PROVIDER" = azuredevops ] || return 0
+  for arg in "$@"; do
+    if ado_arg_abbreviates "$arg" bypass-policy bypass-policy-reason; then
+      echo "error: extra merge arguments must never bypass branch policy" >&2
+      return 1
+    fi
+    if ado_arg_abbreviates "$arg" id org organization detect status; then
+      echo "error: extra merge arguments must not override the pull request, organization, or completion status" >&2
+      return 1
+    fi
+  done
+}
+
 reject_repo_overrides "$@" || exit 1
 reject_head_overrides "$@" || exit 1
+reject_ado_overrides "$@" || exit 1
 reject_protected_forge_args "$@" || exit 1
 
 FM_PR_GITHUB_AUTO_REQUESTED=false
@@ -361,6 +436,15 @@ if [ "$PROVIDER" = gitlab ]; then
         esac
         ;;
     esac
+  done
+fi
+# Any mention of --auto-complete, or of an abbreviation az would expand to it, is
+# treated as a request, whatever value follows it, because az takes the value as
+# a separate argument and the conservative reading costs only an attended retry.
+FM_PR_ADO_ASYNC_REQUESTED=false
+if [ "$PROVIDER" = azuredevops ]; then
+  for arg in "$@"; do
+    ! ado_arg_abbreviates "$arg" auto-complete || FM_PR_ADO_ASYNC_REQUESTED=true
   done
 fi
 FM_PR_AWAY_POSTURE=false
@@ -425,6 +509,17 @@ if [ "$PROVIDER" = gitlab ]; then
   fi
   if [ -n "$GITLAB_MISSING" ]; then
     echo "error: merging a GitLab merge request requires $GITLAB_MISSING on PATH" >&2
+    exit 1
+  fi
+fi
+ADO_MISSING=
+if [ "$PROVIDER" = azuredevops ]; then
+  command -v az >/dev/null 2>&1 || ADO_MISSING="az"
+  if ! command -v jq >/dev/null 2>&1; then
+    ADO_MISSING="${ADO_MISSING:+$ADO_MISSING and }jq"
+  fi
+  if [ -n "$ADO_MISSING" ]; then
+    echo "error: merging an Azure DevOps pull request requires $ADO_MISSING on PATH, with the azure-devops extension for az" >&2
     exit 1
   fi
 fi
@@ -550,6 +645,112 @@ FIELDS
     "$URL" "$live_head" >&2
   FM_PR_MERGE_HEAD=$live_head
   FM_PR_GITLAB_ASYNC_CONFIGURED=$async_configured
+}
+
+# Pre-merge conditions for an Azure DevOps pull request, read from one live view
+# of the pull request and one of its policy evaluations. The pull request must
+# be active, not a draft, and free of merge conflicts, and every enabled policy
+# that blocks completion must be approved or not applicable, which makes a
+# blocking policy that has not reported - queued or still running - a refusal
+# exactly as an unreported required check is on GitHub. A build policy must also
+# have evaluated the current head, because a build that ran at an older commit
+# reads approved until it expires. Sets FM_PR_MERGE_HEAD to the verified head on
+# success and returns non-zero after reporting every condition that failed.
+FM_PR_ADO_ASYNC_CONFIGURED=false
+ado_verify_mergeable() {
+  local pr policies fields line
+  local total=0 named=0 refusals=''
+  local state='' draft='' merge_status='' live_head='' async_configured=''
+  if ! pr=$(fm_pr_ado_read_pr "$PR_PATH" "$PR_NUMBER") \
+    || ! policies=$(az repos pr policy list --id "$PR_NUMBER" --org "$ADO_ORG_URL" \
+      --only-show-errors -o json 2>/dev/null) || [ -z "$policies" ]; then
+    echo "error: could not read the Azure DevOps pull request state before merging" >&2
+    return 1
+  fi
+  # One named field per line, as on GitLab. A policy that blocks merging and is
+  # not satisfied is one "policy=" line naming it, with line breaks flattened so
+  # a name cannot forge a field line.
+  if ! fields=$(jq -nr --argjson pr "$pr" --argjson policies "$policies" "$FM_PR_ADO_REVIEW_POLICY_JQ"'
+      def flat: gsub("[\r\n]"; " ");
+      ($pr.lastMergeSourceCommit.commitId // "") as $head
+      | if ($policies | type) != "array" then error("policy evaluations are not a list") else . end
+      | "state=" + ($pr.status | tostring),
+        "draft=" + ($pr.isDraft | tostring),
+        "merge_status=" + (($pr.mergeStatus // "") | tostring),
+        "head=" + ($head | tostring),
+        "async_configured=" + (if ((($pr.autoCompleteSetBy.id // "") | tostring) | IN("", "00000000-0000-0000-0000-000000000000")) then "false" else "true" end),
+        ($policies[]
+          | select(.configuration.isBlocking == true and .configuration.isEnabled == true
+              and .configuration.isDeleted != true)
+          | (.context // {}) as $c
+          | ((.configuration.type.displayName // "unnamed policy") + (if $c.buildDefinitionName then " (" + $c.buildDefinitionName + ")" else "" end)) as $name
+          | if ado_review_policy then
+              if (.status | IN("approved", "notApplicable")) then empty
+              else "review=" + $name + " is " + ((.status // "unreadable") | tostring) end
+            elif ((.status == "approved" or .status == "notApplicable") | not) then
+              "policy=" + $name + " is " + ((.status // "unreadable") | tostring)
+            elif $c.isExpired == true then
+              "policy=" + $name + " evaluated a build that has expired"
+            elif ($c.lastMergeSourceCommitId // $head) != $head then
+              "policy=" + $name + " evaluated " + ($c.lastMergeSourceCommitId | tostring) + ", not the current head"
+            else empty end
+          | flat)' 2>/dev/null); then
+    echo "error: could not read the Azure DevOps pull request state before merging" >&2
+    return 1
+  fi
+  while IFS= read -r line; do
+    total=$((total + 1))
+    case "$line" in
+      state=*) state=${line#state=} ;;
+      draft=*) draft=${line#draft=} ;;
+      merge_status=*) merge_status=${line#merge_status=} ;;
+      head=*) live_head=${line#head=} ;;
+      async_configured=*) async_configured=${line#async_configured=} ;;
+      policy=*)
+        refusals="$refusals  - blocking policy ${line#policy=}
+"
+        continue
+        ;;
+      review=*)
+        refusals="$refusals  - review required: ${line#review=}
+"
+        continue
+        ;;
+      *) continue ;;
+    esac
+    named=$((named + 1))
+  done <<FIELDS
+$fields
+FIELDS
+  # Every field named exactly once and no unnamed line, as on GitLab.
+  if [ "$named" -ne 5 ] || [ "$total" -lt 5 ]; then
+    echo "error: could not read the Azure DevOps pull request state before merging" >&2
+    return 1
+  fi
+  if ! fm_pr_head_valid "$live_head"; then
+    echo "error: could not read the Azure DevOps pull request head commit before merging" >&2
+    return 1
+  fi
+
+  [ "$state" = active ] \
+    || refusals="$refusals  - status is \"${state:-unreadable}\", not active
+"
+  [ "$draft" = false ] \
+    || refusals="$refusals  - isDraft is \"${draft:-unreadable}\", not false
+"
+  [ "$merge_status" = succeeded ] \
+    || refusals="$refusals  - mergeStatus is \"${merge_status:-unreadable}\", not succeeded
+"
+
+  if [ -n "$refusals" ]; then
+    printf 'error: refusing to merge %s\n' "$URL" >&2
+    printf '%s' "$refusals" >&2
+    return 1
+  fi
+  printf 'verified: %s is active and mergeable, with every blocking policy approved at head %s\n' \
+    "$URL" "$live_head" >&2
+  FM_PR_MERGE_HEAD=$live_head
+  FM_PR_ADO_ASYNC_CONFIGURED=$async_configured
 }
 
 # Every GitHub check that is not green in the given live pull-request JSON, one
@@ -1131,6 +1332,11 @@ require_current_away_authority() {
       return 2
     fi
   fi
+  if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "$PROVIDER" = azuredevops ] \
+    && { [ "$FM_PR_ADO_ASYNC_REQUESTED" = true ] || [ "$FM_PR_ADO_ASYNC_CONFIGURED" = true ]; }; then
+    echo "error: Azure DevOps auto-complete is attended-only; while the away-posture record exists only an immediate completion may run under its authority lock" >&2
+    return 2
+  fi
   fm_lease_forbid_branch "PR merge (fm-pr-merge)" --away-relocated
   resolve_merge_authority || return 1
   if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "${#ALLOW_RED[@]}" -gt 0 ]; then
@@ -1326,6 +1532,36 @@ gitlab_confirm_merged() {
   [ "$state" = merged ]
 }
 
+# Azure DevOps completes a pull request on the server after accepting the
+# request, so the read-back waits a bounded few attempts for status completed
+# before reporting the landed state unconfirmed. Also reports a merged head that
+# is not the head this run verified: az binds nothing to it, so a push landing
+# between the verification and the completion cannot be refused, only detected.
+ado_confirm_merged() {
+  local record state head attempt=1 delay=${FM_PR_ADO_CONFIRM_DELAY:-2}
+  case "$delay" in
+    [0-9] | 10) ;;
+    *) delay=2 ;;
+  esac
+  while :; do
+    if record=$(fm_pr_ado_read_pr "$PR_PATH" "$PR_NUMBER") \
+      && state=$(printf '%s' "$record" | jq -r '.status') && [ "$state" = completed ]; then
+      head=$(printf '%s' "$record" | jq -r '.lastMergeSourceCommit.commitId // ""')
+      if [ "$head" != "$FM_PR_MERGE_HEAD" ]; then
+        printf 'actionable: %s merged at head %s, not the head %s this run verified; a push landed between the check and the completion, so review what merged\n' \
+          "$URL" "${head:-unknown}" "$FM_PR_MERGE_HEAD" >&2
+      fi
+      return 0
+    fi
+    [ "$attempt" -lt 5 ] || break
+    sleep "$delay"
+    attempt=$((attempt + 1))
+  done
+  printf 'actionable: Azure DevOps accepted the completion request for %s but its landed state could not be confirmed; the merge poll remains armed\n' \
+    "$URL" >&2
+  return 2
+}
+
 # Record before either forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
@@ -1458,6 +1694,35 @@ case "$PROVIDER" in
     gitlab_confirm_rc=0
     gitlab_confirm_merged || gitlab_confirm_rc=$?
     [ "$gitlab_confirm_rc" -eq 0 ] || exit 0
+    ;;
+  azuredevops)
+    ado_verify_mergeable || exit 1
+    # The away record is locked first, so this last presence and authority read
+    # and the forge command below share one live-owner critical section.
+    hold_away_record_for_merge || exit 1
+    away_status=0
+    require_current_away_authority || away_status=$?
+    [ "$away_status" -eq 0 ] || exit "$away_status"
+    merge_status=0
+    # No --bypass-policy, ever: reject_ado_overrides refuses it in the extra
+    # arguments, and this is the only place the completion is requested. The
+    # merge strategy is the one the pull request's own completion options and
+    # branch policy carry; a caller whose policy requires one passes it after --.
+    az repos pr update --id "$PR_NUMBER" --org "$ADO_ORG_URL" --status completed \
+      --only-show-errors -o none "$@" || merge_status=$?
+    if [ "$merge_status" -ne 0 ]; then
+      fm_afk_contract_lock_release || true
+      fm_lock_release "$MERGE_CONTROL_LOCK" || true
+      MERGE_CONTROL_LOCK=
+      exit "$merge_status"
+    fi
+    persist_accepted_merge_authority || exit 1
+    fm_afk_contract_lock_release || true
+    fm_lock_release "$MERGE_CONTROL_LOCK" || true
+    MERGE_CONTROL_LOCK=
+    ado_confirm_rc=0
+    ado_confirm_merged || ado_confirm_rc=$?
+    [ "$ado_confirm_rc" -eq 0 ] || exit 0
     ;;
   *)
     echo "error: invalid PR merge request" >&2
