@@ -104,7 +104,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         idx = min(Handler.count, len(bodies) - 1)
         Handler.count += 1
-        payload = json.dumps({"body": bodies[idx]}).encode()
+        line = bodies[idx]
+        if line.startswith("status:"):
+            self.send_response(int(line[7:]))
+            self.end_headers()
+            return
+        payload = b"<html>oops</html>" if line == "garbage" else json.dumps({"body": line}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -189,6 +194,62 @@ test_wait_script_times_out_without_failing() {
   assert_contains "$out" "did not catch up to $NEW_SHA within the wait window" \
     "wait script did not report the expired wait window"
   pass "wait script gives up quietly on a genuinely stale attestation and lets the gate judge it"
+}
+
+# run_wait_stub <name> <max> <head> <env...> -- <body lines...>: runs the wait
+# script against the stub serving the given lines, leaving output in $WAIT_OUT
+# and the exit code in $WAIT_RC.
+run_wait_stub() {
+  local name=$1 max=$2 tmp pid port
+  shift 2
+  tmp=$(fm_test_tmproot "fm-nm-wait-$name")
+  printf '%s\n' "$@" > "$tmp/bodies.txt"
+  pid=$(fm_start_pr_body_stub "$tmp/bodies.txt" "$tmp/port" "$tmp/server.log")
+  port=$(fm_wait_for_stub_port "$tmp/port")
+  [ -n "$port" ] || { kill "$pid" 2>/dev/null; fail "stub server never reported a port"; }
+  WAIT_RC=0
+  WAIT_OUT=$(GITHUB_TOKEN=x REPO=owner/repo PR_NUMBER=7 HEAD_SHA="$NEW_SHA" \
+    GITHUB_API_URL="http://127.0.0.1:$port" \
+    NM_WAIT_MAX_SECONDS="$max" NM_WAIT_POLL_SECONDS=0.1 "${WAIT_ENV[@]}" \
+    python3 "$WAIT_SCRIPT" 2>&1) || WAIT_RC=$?
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+}
+
+test_wait_script_retries_transient_errors_until_caught_up() {
+  local status
+  WAIT_ENV=(env)
+  for status in 500 429 403; do
+    run_wait_stub "retry-$status" 5 "status:$status" "status:$status" "$(fm_attestation_body "$NEW_SHA")"
+    expect_code 0 "$WAIT_RC" "wait script failed on a transient HTTP $status"
+    assert_contains "$WAIT_OUT" "already names the current head $NEW_SHA" \
+      "wait script gave up on a transient HTTP $status instead of retrying to the new head"
+  done
+  run_wait_stub retry-garbage 5 garbage "$(fm_attestation_body "$NEW_SHA")"
+  expect_code 0 "$WAIT_RC" "wait script failed on a non-JSON body"
+  assert_contains "$WAIT_OUT" "already names the current head $NEW_SHA" \
+    "wait script did not retry past a non-JSON body"
+  pass "wait script retries transient errors and bad bodies until the attestation catches up"
+}
+
+test_wait_script_stops_early_on_unfixable_errors() {
+  local status
+  WAIT_ENV=(env)
+  for status in 401 404; do
+    run_wait_stub "stop-$status" 30 "status:$status"
+    expect_code 0 "$WAIT_RC" "wait script failed on HTTP $status"
+    assert_contains "$WAIT_OUT" "could not read the live PR body" \
+      "wait script did not stop early on HTTP $status"
+  done
+  pass "wait script stops early only on errors waiting cannot fix"
+}
+
+test_wait_script_never_fails_on_bad_wait_settings() {
+  WAIT_ENV=(env NM_WAIT_POLL_SECONDS=soon)
+  run_wait_stub bad-env nonsense "$(fm_attestation_body "$NEW_SHA")"
+  expect_code 0 "$WAIT_RC" "wait script failed on an unparsable NM_WAIT_* value"
+  assert_contains "$WAIT_OUT" "already names the current head $NEW_SHA" \
+    "wait script did not fall back to its defaults"
+  pass "wait script falls back to defaults when NM_WAIT_* values do not parse"
 }
 
 # --- .github/workflows/no-mistakes-required.yml gating for a missing
@@ -315,11 +376,43 @@ test_wait_step_is_gated_on_the_check_steps_output() {
   pass "wait step's if condition is gated on the check step's exists output, not only the event action"
 }
 
+test_wait_step_skips_exempt_head_branches() {
+  local tmp out ref exempt expect spec
+  tmp=$(fm_test_tmproot fm-nmr-exempt)
+  mkdir -p "$tmp/bin"
+  printf '#!/bin/sh\necho WAITED\n' > "$tmp/bin/python3"
+  chmod +x "$tmp/bin/python3"
+  for spec in \
+    'upstream-sync|upstream-sync|skip' \
+    'upstream-sync|  other ,  upstream-sync  |skip' \
+    'release-please--main|foo,release-please--*|skip' \
+    "upstream-sync|foo"$'\n'"upstream-sync|skip" \
+    'fm/feature|upstream-sync|wait' \
+    'fm/feature||wait'; do
+    ref=${spec%%|*}; spec=${spec#*|}
+    expect=${spec##*|}; exempt=${spec%|*}
+    out=$(HEAD_REF=$ref EXEMPT_HEAD_BRANCHES=$exempt PATH="$tmp/bin:$PATH" \
+      bash -c "$(nmr_step_run 'Wait for pipeline attestation to catch up to the current head')" 2>&1)
+    case "$expect" in
+      skip)
+        assert_contains "$out" "is exempt" "wait ran for exempt '$ref' with '$exempt'"
+        [ "${out#*WAITED}" = "$out" ] || fail "wait ran for exempt '$ref' with '$exempt'"
+        ;;
+      wait) assert_contains "$out" WAITED "wait skipped for non-exempt '$ref' with '$exempt'" ;;
+    esac
+  done
+  pass "wait step skips exempt head branches using the gate's separator and whitespace rules"
+}
+
 fetch_shared_verifier
 test_matching_head_and_completed_steps_pass
 test_mismatched_head_fails_with_both_shas
 test_missing_head_fails
 test_wait_script_returns_once_attestation_catches_up
 test_wait_script_times_out_without_failing
+test_wait_script_retries_transient_errors_until_caught_up
+test_wait_script_stops_early_on_unfixable_errors
+test_wait_script_never_fails_on_bad_wait_settings
+test_wait_step_skips_exempt_head_branches
 test_check_step_detects_missing_script_without_failing
 test_wait_step_is_gated_on_the_check_steps_output

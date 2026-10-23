@@ -57,7 +57,9 @@ jobs:
       # below would read the previous head's attestation and fail even when
       # the pipeline did everything right (#12). Give the body a short bounded
       # window to catch up before judging it; see the script for the full
-      # rationale and why this never fails the job on its own.
+      # rationale and why this never fails the job on its own. An exempt head
+      # branch never gets an attestation, so it skips the wait; the patterns
+      # split on commas and newlines and trim whitespace, like the gate's own.
       - name: Wait for pipeline attestation to catch up to the current head
         if: (github.event.action == 'synchronize' || github.event.action == 'reopened') && steps.wait-script.outputs.exists == 'true'
         timeout-minutes: 5
@@ -66,7 +68,22 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 bin/fm-wait-for-pr-attestation.py
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EXEMPT_HEAD_BRANCHES: ${{ vars.NO_MISTAKES_EXEMPT_HEAD_BRANCHES }}
+        run: |
+          while IFS= read -r pattern; do
+            pattern=${pattern#"${pattern%%[![:space:]]*}"}
+            pattern=${pattern%"${pattern##*[![:space:]]}"}
+            [ -n "$pattern" ] || continue
+            # shellcheck disable=SC2254 # the pattern is a glob on purpose
+            case "$HEAD_REF" in
+              $pattern)
+                echo "::notice::head branch $HEAD_REF is exempt; skipping the attestation wait"
+                exit 0
+                ;;
+            esac
+          done <<< "$(printf '%s' "$EXEMPT_HEAD_BRANCHES" | tr ',' '\n')"
+          python3 bin/fm-wait-for-pr-attestation.py
       - name: Verify no-mistakes signature and pipeline attestation
         uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@f6441c96c352a18b9cadcaef6b6c7017e9ac3970 # v1.80.1
         with:

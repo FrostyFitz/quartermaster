@@ -194,14 +194,17 @@ test_alert_fires_once_per_episode_and_again_on_a_new_episode() {
     || fail "the alert floor did not fire exactly once on the first tick: $(cat "$alert_log")"
   grep -F 'attended supervision stopped responding' "$alert_log" >/dev/null \
     || fail "the alert summary did not carry the attended-specific wording: $(cat "$alert_log")"
+  grep -F 'a re-arm was attempted; see state/.attended-backstop-arm.log' "$alert_log" >/dev/null \
+    || fail "the alert summary overclaimed the re-arm: $(cat "$alert_log")"
 
-  # Tick 2: same unhandled episode (still no beacon) - must stay silent.
+  # Tick 2: same unhandled episode (still no beacon) - the re-arm is retried
+  # (a first arm that died at once must not leave the watcher down), but the
+  # alert stays silent.
   FM_WEDGE_ALARM_LOG="$alert_log" run_backstop "$home" \
     env FM_ATTENDED_BACKSTOP_THRESHOLD_SECS=0 \
     FM_ATTENDED_BACKSTOP_REARM_CMD="$rearm" FM_TEST_REARM_COUNTER="$counter" \
     FM_WEDGE_ALARM_LOG="$alert_log"
-  sleep 0.2
-  [ "$(count_rearm "$counter")" = 1 ] || fail "re-arm fired again within the same unhandled episode"
+  wait_for_lines "$counter" 2 || fail "re-arm was not retried within the same unhandled episode"
   [ "$(wc -l < "$alert_log" | tr -d '[:space:]')" = 1 ] \
     || fail "the alert floor re-fired within the same unhandled episode: $(cat "$alert_log")"
 
@@ -218,10 +221,10 @@ test_alert_fires_once_per_episode_and_again_on_a_new_episode() {
     env FM_ATTENDED_BACKSTOP_THRESHOLD_SECS=0 \
     FM_ATTENDED_BACKSTOP_REARM_CMD="$rearm" FM_TEST_REARM_COUNTER="$counter" \
     FM_WEDGE_ALARM_LOG="$alert_log"
-  wait_for_lines "$counter" 2 || fail "re-arm did not fire again on the new episode"
+  wait_for_lines "$counter" 3 || fail "re-arm did not fire again on the new episode"
   [ "$(wc -l < "$alert_log" | tr -d '[:space:]')" = 2 ] \
     || fail "the alert floor did not re-fire on a new episode: $(cat "$alert_log")"
-  pass "fm-attended-backstop: the alert floor fires once per episode and again on a new episode"
+  pass "fm-attended-backstop: the re-arm retries every unhealthy tick while the alert fires once per episode and again on a new one"
 }
 
 # --- healthy cycle writes nothing --------------------------------------------

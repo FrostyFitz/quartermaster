@@ -1614,7 +1614,7 @@ SH
 # compares the record's project and repository with the URL's, because a pull
 # request id is unique per organization, not per repository.
 test_azuredevops_merge_watch() {
-  local dir state out rc url value tool notool entry bindir name
+  local dir state out rc url badurl value tool notool entry bindir name
   dir=$(make_case azuredevops-merge-watch)
   state="$dir/home/state"
   url='https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9'
@@ -1709,6 +1709,15 @@ EOF
     out=$(FM_TEST_AZ_STATUS=completed run_poll "$dir")
     [ -z "$out" ] || fail "Azure DevOps poll emitted for a doctored sidecar: $value"
   done
+
+  # The poll revalidates segments with the library's own rule: a % must carry
+  # two hex digits, so %4Z mid-string is refused even when az would echo back
+  # the name a lenient decode produces.
+  badurl='https://dev.azure.com/exampleorg/Firm%4Zware/_git/mt-base/pullrequest/9'
+  printf '%s\n%s\n%s\n%s\n%s\n' azuredevops "$badurl" dev.azure.com 'exampleorg/Firm%4Zware/_git/mt-base' 9 \
+    > "$state/task-a.pr-poll"
+  out=$(FM_TEST_AZ_STATUS=completed FM_TEST_AZ_PROJECT=$'Firm\004Zware' run_poll "$dir")
+  [ -z "$out" ] || fail "Azure DevOps poll accepted a malformed percent escape mid-segment"
   pass "the Azure DevOps watch wakes only on status completed for the exact pull request it names"
 }
 
