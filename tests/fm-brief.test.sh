@@ -260,7 +260,7 @@ test_ship_mode_is_explicit_not_registry() {
   brief="$home/data/brief-explicit-a5/brief.md"
   grep -qx "Delivery contract: mode=no-mistakes" "$brief" \
     || fail "registered direct-PR posture overrode the explicit --mode"
-  assert_grep "Firstmate will then instruct you to run /no-mistakes" "$brief" \
+  assert_grep "then run /no-mistakes yourself immediately" "$brief" \
     "explicit no-mistakes brief did not render the pipeline definition of done"
 
   # An unregistered project is not a blocker either, because nothing is looked up.
@@ -1326,6 +1326,49 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   pass "fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool"
 }
 
+# Two 2026-10-23 recurring worker failures: a ship worker's `bfs /` wandered
+# into a network-mounted share and hung every system-wide process scan, and
+# no-mistakes ship workers stopped to wait for a go-ahead before running
+# /no-mistakes although their brief already authorizes validation. Both rules
+# must reach every worker that could hit them: the search rule on ship and
+# scout alike, and the immediate-validation rule only where there is a
+# pipeline to run.
+test_filesystem_search_and_immediate_validation_rules() {
+  local home id brief mode
+  home="$TMP_ROOT/search-and-validation-home"
+  mkdir -p "$home/data"
+
+  for mode in no-mistakes direct-PR local-only; do
+    id="brief-search-$mode"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" alpha --mode "$mode" >/dev/null 2>&1 \
+      || fail "fm-brief.sh --mode $mode exited non-zero"
+    brief="$home/data/$id/brief.md"
+    assert_grep "Never run a filesystem search rooted at \`/\` or your home directory" "$brief" \
+      "$mode ship brief did not render the filesystem-search rule"
+    assert_grep "symlink chain" "$brief" \
+      "$mode ship brief lost the reason for the filesystem-search rule"
+    if [ "$mode" = no-mistakes ]; then
+      assert_grep "then run /no-mistakes yourself immediately" "$brief" \
+        "no-mistakes ship brief did not render the immediate-validation rule"
+      assert_grep "no approval checkpoint or go-ahead to wait for" "$brief" \
+        "no-mistakes ship brief lost the reason for the immediate-validation rule"
+    else
+      assert_no_grep "run /no-mistakes yourself immediately" "$brief" \
+        "$mode ship brief rendered the no-mistakes-only immediate-validation rule"
+    fi
+  done
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-search-scout alpha --scout >/dev/null 2>&1 \
+    || fail "fm-brief.sh --scout exited non-zero"
+  brief="$home/data/brief-search-scout/brief.md"
+  assert_grep "Never run a filesystem search rooted at \`/\` or your home directory" "$brief" \
+    "scout brief did not render the filesystem-search rule"
+  assert_no_grep "run /no-mistakes yourself immediately" "$brief" \
+    "scout brief rendered the no-mistakes-only immediate-validation rule"
+
+  pass "fm-brief.sh: the filesystem-search rule reaches ship and scout, and the immediate-validation rule reaches only no-mistakes"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -1360,3 +1403,4 @@ test_branch_prefix_is_refused_where_it_does_not_apply
 test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
+test_filesystem_search_and_immediate_validation_rules
