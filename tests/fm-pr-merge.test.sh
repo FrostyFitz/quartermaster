@@ -3478,6 +3478,11 @@ case "${1:-} ${2:-} ${3:-}" in
     cat "$FM_TEST_AZ_DIR/ado-policies.json"
     exit 0
     ;;
+  "repos pr update")
+    [ ! -e "$FM_TEST_AZ_DIR/az-update-fails" ] || { echo "TF401028: policy rejected the completion" >&2; exit 1; }
+    : > "$FM_TEST_AZ_DIR/az-update-called"
+    exit 0
+    ;;
   "devops invoke --area")
     [ ! -e "$FM_TEST_AZ_DIR/az-update-fails" ] || { echo "TF401028: policy rejected the completion" >&2; exit 1; }
     : > "$FM_TEST_AZ_DIR/az-update-called"
@@ -3562,7 +3567,7 @@ make_ado_case() {
 }
 
 ado_update_line() {
-  grep -F 'devops invoke' "$1" || true
+  grep -E 'devops invoke|repos pr update' "$1" || true
 }
 
 run_ado_merge() {
@@ -3805,6 +3810,13 @@ test_ado_extra_args_forwarded_only_attended() {
   expect_code 1 "$rc" "ado-extra-args-unknown: an unmapped flag must be refused"
   assert_grep 'accepts only --squash' "$case_dir/stderr" "ado-extra-args-unknown: refusal did not name the accepted flags"
   [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "ado-extra-args-unknown: a completion was attempted"
+
+  case_dir=$(make_ado_case ado-extra-args-auto-complete)
+  : > "$case_dir/az-stays-active"
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- --auto-complete true --squash true \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "ado-extra-args-auto-complete: attended auto-complete should be requested"
+  [ "$(ado_update_line "$case_dir/az.log")" = "repos pr update --id 9 --org $ADO_ORG_URL --status completed --only-show-errors -o none --auto-complete true --squash true" ] \
+    || fail "ado-extra-args-auto-complete: auto-complete did not reach az: '$(ado_update_line "$case_dir/az.log")'"
 
   case_dir=$(make_ado_case ado-extra-args-attended)
   run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- --delete-source-branch true \

@@ -77,7 +77,7 @@ The merge is `az devops invoke --area git --resource pullRequests --http-method 
 `az` accepts any unambiguous prefix of a long option, so every guard on the extra arguments also refuses any prefix of a protected flag, such as `--orga` for `--organization` or `--auto-comp` for `--auto-complete`.
 
 Naming the verified head in the body binds the completion to it, as `gh --match-head-commit` and `glab --sha` do, so the server refuses a pull request whose source branch has moved.
-The extra arguments after `--` map only the completion flags `--squash`, `--delete-source-branch`, `--merge-commit-message`, and `--transition-work-items` into the body's `completionOptions`, over the pull request's own options, and any other flag is refused.
+The extra arguments after `--` map only the completion flags `--squash`, `--delete-source-branch`, `--merge-commit-message`, and `--transition-work-items` into the body's `completionOptions`, over the pull request's own options, and any other flag is refused. An attended `--attended-override -- --auto-complete true` request is not an immediate completion, so it still runs `az repos pr update --status completed` with the extra arguments as given.
 The read-back after completion still compares the merged head with the verified head and reports any difference as actionable.
 
 ## Reading it back

@@ -119,6 +119,9 @@
 # completion flags --squash, --delete-source-branch, --merge-commit-message, and
 # --transition-work-items are accepted there, mapped into the request's
 # completionOptions over the pull request's own, and any other flag is refused.
+# An attended --auto-complete request is not an immediate completion: it still
+# goes through az repos pr update with the extra arguments as given, so the
+# server, not this run, chooses the head it completes later.
 # The read-back after completion still compares the merged head with the
 # verified one and reports any difference as actionable. The completion is confirmed by reading the pull
 # request back, waiting a few attempts for status completed, and an unconfirmed
@@ -1767,7 +1770,7 @@ case "$PROVIDER" in
     [ "$gitlab_confirm_rc" -eq 0 ] || exit 0
     ;;
   azuredevops)
-    ado_overrides=$(ado_completion_overrides "$@") || exit 1
+    [ "$FM_PR_ADO_ASYNC_REQUESTED" = true ] || ado_overrides=$(ado_completion_overrides "$@") || exit 1
     ado_verify_mergeable || exit 1
     # The away record is locked first, so this last presence and authority read
     # and the forge command below share one live-owner critical section.
@@ -1780,7 +1783,12 @@ case "$PROVIDER" in
     # arguments, and this is the only place the completion is requested. The
     # merge strategy is the one the pull request's own completion options and
     # branch policy carry; a caller whose policy requires one passes it after --.
-    ado_complete "$ado_overrides" || merge_status=$?
+    if [ "$FM_PR_ADO_ASYNC_REQUESTED" = true ]; then
+      az repos pr update --id "$PR_NUMBER" --org "$ADO_ORG_URL" --status completed \
+        --only-show-errors -o none "$@" || merge_status=$?
+    else
+      ado_complete "$ado_overrides" || merge_status=$?
+    fi
     if [ "$merge_status" -ne 0 ]; then
       fm_afk_contract_lock_release || true
       fm_lock_release "$MERGE_CONTROL_LOCK" || true
