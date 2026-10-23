@@ -87,6 +87,10 @@
 # delivery contract.
 # There is no --yolo flag here. The worker never owns merge decisions, so yolo is
 # a spawn-time and firstmate-side input only (AGENTS.md section 7).
+# Both crewmate scaffolds also carry a shared rule against a filesystem search
+# rooted at / or the home directory, immediately after the shared
+# infrastructure rule, for the same reason that rule cannot drift between ship
+# and scout.
 # Every scaffold's status protocol distinguishes the configured
 # declared-external-wait verb (FM_CLASSIFY_PAUSED_VERB, default "paused") from
 # "blocked:": pause for a known wait expected to clear on its own, including
@@ -535,6 +539,15 @@ IFS= read -r -d '' SHARED_INFRA_RULE <<'EOF' || true
 EOF
 SHARED_INFRA_RULE=${SHARED_INFRA_RULE%$'\n'}
 
+# One shared string for ship and scout alike (both search): a 2026-10-23
+# incident had a ship worker's `bfs /` wander into a desktop network-share
+# mount and loop forever through a symlink chain, hanging every system-wide
+# process scan for 1h44m.
+IFS= read -r -d '' SEARCH_RULE <<'EOF' || true
+8. Never run a filesystem search rooted at `/` or your home directory (`find`, `bfs`, `fd`, `rg --files`, or similar recursive scans): a broad search can wander into a network-mounted share and loop forever through a symlink chain, hanging every system-wide process scan. Search the task's own tree or the specific package/tool cache directory you need (for example `~/.pub-cache/hosted/pub.dev/`, the Go module cache, `node_modules`), and ask the tool that owns an unknown location (`dart pub deps`, `go env GOMODCACHE`, `npm root`) rather than scanning for it.
+EOF
+SEARCH_RULE=${SEARCH_RULE%$'\n'}
+
 if [ "$KIND" = scout ]; then
 if "$SCRIPT_DIR/fm-bootstrap.sh" lavish-compatible >/dev/null 2>&1; then
   LAVISH_LINE='If your deliverable is a visual artifact the captain will review and iterate on, use the lavish-axi rule: arm your board with bin/fm-procevent-lavish.sh arm <artifact.html> --for <task-id>; never run lavish-axi poll yourself. Re-arm with the reply after each nonterminal round to acknowledge it, route the board feedback through your steering inbox, write needs-decision [key=board-review] with the live board URL when the captain owes a decision, and stop at session_ended or an empty End without re-arming - acknowledge that final round with bin/fm-procevent.sh handled <source-id> <sequence> to conclude and retire your board.'
@@ -575,6 +588,7 @@ $CREWMATE_PAUSE_INSTRUCTIONS
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 $SHARED_INFRA_RULE
+$SEARCH_RULE
 
 $INBOX_SECTION
 
@@ -653,6 +667,7 @@ $ASK_USER_BLOCK
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 $SHARED_INFRA_RULE
+$SEARCH_RULE
 
 $INBOX_SECTION
 
