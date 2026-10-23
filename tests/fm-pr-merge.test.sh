@@ -3815,8 +3815,12 @@ test_ado_extra_args_forwarded_only_attended() {
   : > "$case_dir/az-stays-active"
   run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- --auto-complete true --squash true \
     > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "ado-extra-args-auto-complete: attended auto-complete should be requested"
-  [ "$(ado_update_line "$case_dir/az.log")" = "repos pr update --id 9 --org $ADO_ORG_URL --status completed --only-show-errors -o none --auto-complete true --squash true" ] \
+  [ "$(ado_update_line "$case_dir/az.log")" = "repos pr update --id 9 --org $ADO_ORG_URL --only-show-errors -o none --auto-complete true --squash true" ] \
     || fail "ado-extra-args-auto-complete: auto-complete did not reach az: '$(ado_update_line "$case_dir/az.log")'"
+  assert_no_grep '--status completed' "$case_dir/az.log" \
+    "ado-extra-args-auto-complete: an immediate completion was requested alongside auto-complete"
+  assert_absent "$case_dir/state/.wake-queue" "ado-extra-args-auto-complete: a queued auto-complete was reported as landed"
+  [ -f "$case_dir/state/task-x1.check.sh" ] || fail "ado-extra-args-auto-complete: the merge poll was not left armed"
 
   case_dir=$(make_ado_case ado-extra-args-attended)
   run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- --delete-source-branch true \

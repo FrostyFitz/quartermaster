@@ -119,9 +119,12 @@
 # completion flags --squash, --delete-source-branch, --merge-commit-message, and
 # --transition-work-items are accepted there, mapped into the request's
 # completionOptions over the pull request's own, and any other flag is refused.
-# An attended --auto-complete request is not an immediate completion: it still
-# goes through az repos pr update with the extra arguments as given, so the
-# server, not this run, chooses the head it completes later.
+# An attended --auto-complete request does not request an immediate
+# completion: it runs az repos pr update without --status completed, with the
+# extra arguments as given, so it only sets auto-complete, and Azure DevOps
+# completes the pull request itself only after its branch policies pass on the
+# head it completes. That request is handled as queued: this run records no
+# landed outcome and the merge poll stays armed.
 # The read-back after completion still compares the merged head with the
 # verified one and reports any difference as actionable. The completion is confirmed by reading the pull
 # request back, waiting a few attempts for status completed, and an unconfirmed
@@ -1784,7 +1787,7 @@ case "$PROVIDER" in
     # merge strategy is the one the pull request's own completion options and
     # branch policy carry; a caller whose policy requires one passes it after --.
     if [ "$FM_PR_ADO_ASYNC_REQUESTED" = true ]; then
-      az repos pr update --id "$PR_NUMBER" --org "$ADO_ORG_URL" --status completed \
+      az repos pr update --id "$PR_NUMBER" --org "$ADO_ORG_URL" \
         --only-show-errors -o none "$@" || merge_status=$?
     else
       ado_complete "$ado_overrides" || merge_status=$?
