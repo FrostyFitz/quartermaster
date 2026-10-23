@@ -18,10 +18,17 @@ Required env: GITHUB_TOKEN, REPO (owner/name), PR_NUMBER, HEAD_SHA.
 Optional env: GITHUB_API_URL (default https://api.github.com), used by tests
 to point at a local stub server instead of the real API.
 NM_WAIT_MAX_SECONDS (default 180) and NM_WAIT_POLL_SECONDS (default 10)
-bound and pace the wait; tests shrink both to keep runs fast.
+bound and pace the wait; tests shrink both to keep runs fast. A value that
+does not parse falls back to its default.
+
+A transient read failure (a network error, a truncated or non-JSON body, a 5xx,
+a 429, or a rate-limit 403) is retried until the deadline, because ending the
+wait early would leave the gate to read the previous head's attestation. Only
+an error waiting cannot fix (401, 404, or any other 4xx) ends the wait early.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
@@ -67,6 +74,13 @@ def live_body(api_url: str, repo: str, pr_number: str, token: str) -> str:
     return payload.get("body") or ""
 
 
+def number(name: str, default: float) -> float:
+    try:
+        return float(env(name, str(default)))
+    except ValueError:
+        return default
+
+
 def main() -> int:
     token = env("GITHUB_TOKEN")
     repo = env("REPO")
@@ -77,17 +91,22 @@ def main() -> int:
         return 1
 
     api_url = env("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-    max_seconds = float(env("NM_WAIT_MAX_SECONDS", "180"))
-    poll_seconds = float(env("NM_WAIT_POLL_SECONDS", "10"))
+    max_seconds = number("NM_WAIT_MAX_SECONDS", 180)
+    poll_seconds = number("NM_WAIT_POLL_SECONDS", 10)
     deadline = time.monotonic() + max_seconds
 
     while True:
         try:
             body = live_body(api_url, repo, pr_number, token)
-        except (urllib.error.URLError, TimeoutError) as exc:
-            print(f"::warning::could not read the live PR body while waiting for the attestation: {exc}")
-            return 0
-        if attested_head(body) == head_sha:
+        except urllib.error.HTTPError as exc:
+            if 400 <= exc.code < 500 and exc.code not in (403, 408, 429):
+                print(f"::warning::could not read the live PR body while waiting for the attestation: {exc}")
+                return 0
+            body = None
+        except (OSError, http.client.HTTPException, ValueError) as exc:
+            print(f"::warning::could not read the live PR body while waiting for the attestation, retrying: {exc}")
+            body = None
+        if body is not None and attested_head(body) == head_sha:
             print(f"pipeline attestation already names the current head {head_sha}")
             return 0
         if time.monotonic() >= deadline:

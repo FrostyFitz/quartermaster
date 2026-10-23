@@ -107,18 +107,20 @@
 # policy having evaluated the exact current head. Every failing condition is
 # reported, not just the first. An unmet reviewer, required-reviewer, or
 # comment-requirement policy is reported as a review requirement rather than a
-# check. It is then completed with
-# az repos pr update --status completed, and --bypass-policy is never passed: it
+# check. It is then completed through az devops invoke, a PATCH of the pull
+# request whose lastMergeSourceCommit is the verified head, so the server refuses
+# a head that moved, and --bypass-policy is never passed: it
 # is refused in the extra arguments on every path, attended or not, along with
 # any override of the id, organization, or status, in full or as any prefix az
 # would expand, and --allow-red and
 # --allow-missing do not apply. The pull request's own completion options
 # and branch policy choose the merge strategy, so a project that requires one
-# passes its az flag, for example --squash true, after the -- separator. Unlike gh
-# and glab, az cannot bind the completion to the verified head: a push landing
-# between the read and the completion is not refused, so the read-back after
-# completion compares the merged head with the verified one and reports any
-# difference as actionable. The completion is confirmed by reading the pull
+# passes its az flag, for example --squash true, after the -- separator. Only the
+# completion flags --squash, --delete-source-branch, --merge-commit-message, and
+# --transition-work-items are accepted there, mapped into the request's
+# completionOptions over the pull request's own, and any other flag is refused.
+# The read-back after completion still compares the merged head with the
+# verified one and reports any difference as actionable. The completion is confirmed by reading the pull
 # request back, waiting a few attempts for status completed, and an unconfirmed
 # request leaves the poll armed and records no landed outcome.
 #
@@ -657,6 +659,7 @@ FIELDS
 # reads approved until it expires. Sets FM_PR_MERGE_HEAD to the verified head on
 # success and returns non-zero after reporting every condition that failed.
 FM_PR_ADO_ASYNC_CONFIGURED=false
+FM_PR_ADO_COMPLETION_OPTIONS='{}'
 ado_verify_mergeable() {
   local pr policies fields line
   local total=0 named=0 refusals=''
@@ -751,6 +754,74 @@ FIELDS
     "$URL" "$live_head" >&2
   FM_PR_MERGE_HEAD=$live_head
   FM_PR_ADO_ASYNC_CONFIGURED=$async_configured
+  FM_PR_ADO_COMPLETION_OPTIONS=$(printf '%s' "$pr" | jq -c '.completionOptions // {} | if type == "object" then . else {} end') || return 1
+}
+
+# The extra completion flags as a completionOptions JSON object, or a refusal for
+# any flag az repos pr update does not document as a completion option.
+ado_completion_overrides() {
+  local arg name value overrides='{}'
+  while [ $# -gt 0 ]; do
+    arg=$1
+    shift
+    name=${arg%%=*}
+    if [ "$name" != "$arg" ]; then
+      value=${arg#*=}
+    elif [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; then
+      value=$1
+      shift
+    else
+      value=true
+    fi
+    case "$name" in
+      --squash | --delete-source-branch | --transition-work-items)
+        case "$value" in
+          true | false) ;;
+          *)
+            echo "error: $name takes true or false" >&2
+            return 1
+            ;;
+        esac
+        ;;
+    esac
+    case "$name" in
+      --squash)
+        if [ "$value" = true ]; then value=squash; else value=noFastForward; fi
+        overrides=$(jq -c --arg v "$value" '.mergeStrategy = $v' <<<"$overrides")
+        ;;
+      --delete-source-branch) overrides=$(jq -c --argjson v "$value" '.deleteSourceBranch = $v' <<<"$overrides") ;;
+      --transition-work-items) overrides=$(jq -c --argjson v "$value" '.transitionWorkItems = $v' <<<"$overrides") ;;
+      --merge-commit-message) overrides=$(jq -c --arg v "$value" '.mergeCommitMessage = $v' <<<"$overrides") ;;
+      *)
+        echo "error: Azure DevOps completion accepts only --squash, --delete-source-branch, --merge-commit-message, and --transition-work-items after --, not '$arg'" >&2
+        return 1
+        ;;
+    esac
+  done
+  printf '%s' "$overrides"
+}
+
+# Completes the pull request through the REST PATCH rather than az repos pr
+# update, because only the PATCH can name the verified head: the server refuses
+# the completion if the source branch has moved past FM_PR_MERGE_HEAD.
+ado_complete() {  # <completion-overrides-json>
+  local rest project repository body rc=0
+  rest=${PR_PATH#*/}
+  project=$(fm_pr_ado_decode "${rest%%/*}")
+  repository=$(fm_pr_ado_decode "${PR_PATH##*/}")
+  body=$(mktemp) || return 1
+  jq -n --arg head "$FM_PR_MERGE_HEAD" --argjson existing "$FM_PR_ADO_COMPLETION_OPTIONS" --argjson extra "$1" '
+    ($existing + $extra) as $options
+    | {status: "completed", lastMergeSourceCommit: {commitId: $head}}
+      + (if $options == {} then {} else {completionOptions: $options} end)' > "$body" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    az devops invoke --area git --resource pullRequests --http-method patch \
+      --org "$ADO_ORG_URL" --api-version 7.1 --in-file "$body" \
+      --route-parameters project="$project" repositoryId="$repository" pullRequestId="$PR_NUMBER" \
+      --only-show-errors -o none || rc=$?
+  fi
+  rm -f "$body"
+  return "$rc"
 }
 
 # Every GitHub check that is not green in the given live pull-request JSON, one
@@ -1535,8 +1606,8 @@ gitlab_confirm_merged() {
 # Azure DevOps completes a pull request on the server after accepting the
 # request, so the read-back waits a bounded few attempts for status completed
 # before reporting the landed state unconfirmed. Also reports a merged head that
-# is not the head this run verified: az binds nothing to it, so a push landing
-# between the verification and the completion cannot be refused, only detected.
+# is not the head this run verified, as a second line of defense behind the
+# completion's own head binding.
 ado_confirm_merged() {
   local record state head attempt=1 delay=${FM_PR_ADO_CONFIRM_DELAY:-2}
   case "$delay" in
@@ -1696,6 +1767,7 @@ case "$PROVIDER" in
     [ "$gitlab_confirm_rc" -eq 0 ] || exit 0
     ;;
   azuredevops)
+    ado_overrides=$(ado_completion_overrides "$@") || exit 1
     ado_verify_mergeable || exit 1
     # The away record is locked first, so this last presence and authority read
     # and the forge command below share one live-owner critical section.
@@ -1708,8 +1780,7 @@ case "$PROVIDER" in
     # arguments, and this is the only place the completion is requested. The
     # merge strategy is the one the pull request's own completion options and
     # branch policy carry; a caller whose policy requires one passes it after --.
-    az repos pr update --id "$PR_NUMBER" --org "$ADO_ORG_URL" --status completed \
-      --only-show-errors -o none "$@" || merge_status=$?
+    ado_complete "$ado_overrides" || merge_status=$?
     if [ "$merge_status" -ne 0 ]; then
       fm_afk_contract_lock_release || true
       fm_lock_release "$MERGE_CONTROL_LOCK" || true

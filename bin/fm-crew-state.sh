@@ -17,7 +17,7 @@
 # mapping logic, and terminal passed-run PR detail from bounded evidence only,
 # with no heuristics and no LLM.
 # For a terminal passed no-mistakes run, a matching merge-poll retirement
-# receipt is local merged evidence; otherwise a 5s-bounded forge read is tried.
+# receipt is local merged evidence; otherwise a 5s-bounded forge read (20s for az) is tried.
 # FM_CREW_STATE_NO_FORGE=1 keeps the receipt read but skips the forge fallback.
 # An absent or unreadable PR identity yields an honest unknown, never an
 # optimistic merged claim.
@@ -414,7 +414,8 @@ change_read_record_bounded() {  # <host> <number>
 ado_read_record_bounded() {  # <path> <number>
   local record state merged
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  if ! record=$(fm_run_timed 5 bash -c '
+  # 20s: a cold az is a Python CLI whose startup alone is often 2-5s.
+  if ! record=$(fm_run_timed 20 bash -c '
     . "$1"
     fm_pr_azuredevops_read_record "$2" "$3" || exit 1
     printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"

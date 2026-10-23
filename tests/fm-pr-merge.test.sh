@@ -3478,9 +3478,14 @@ case "${1:-} ${2:-} ${3:-}" in
     cat "$FM_TEST_AZ_DIR/ado-policies.json"
     exit 0
     ;;
-  "repos pr update")
+  "devops invoke --area")
     [ ! -e "$FM_TEST_AZ_DIR/az-update-fails" ] || { echo "TF401028: policy rejected the completion" >&2; exit 1; }
     : > "$FM_TEST_AZ_DIR/az-update-called"
+    prev=
+    for a in "$@"; do
+      [ "$prev" != --in-file ] || cp "$a" "$FM_TEST_AZ_DIR/ado-patch-body.json"
+      prev=$a
+    done
     exit 0
     ;;
 esac
@@ -3557,7 +3562,7 @@ make_ado_case() {
 }
 
 ado_update_line() {
-  grep -F 'repos pr update' "$1" || true
+  grep -F 'devops invoke' "$1" || true
 }
 
 run_ado_merge() {
@@ -3580,8 +3585,12 @@ test_ado_url_resolves_and_merges() {
   assert_grep "repos pr policy list --id 9 --org $ADO_ORG_URL" "$case_dir/az.log" \
     "ado-merges: the policy evaluations were not read"
   update_line=$(ado_update_line "$case_dir/az.log")
-  [ "$update_line" = "repos pr update --id 9 --org $ADO_ORG_URL --status completed --only-show-errors -o none" ] \
-    || fail "ado-merges: unexpected completion invocation: '$update_line'"
+  case "$update_line" in
+    "devops invoke --area git --resource pullRequests --http-method patch --org $ADO_ORG_URL --api-version 7.1 --in-file "*" --route-parameters project=$ADO_PROJECT repositoryId=$ADO_REPO pullRequestId=9 --only-show-errors -o none") ;;
+    *) fail "ado-merges: unexpected completion invocation: '$update_line'" ;;
+  esac
+  [ "$(jq -c . "$case_dir/ado-patch-body.json")" = "{\"status\":\"completed\",\"lastMergeSourceCommit\":{\"commitId\":\"$ADO_HEAD\"}}" ] \
+    || fail "ado-merges: the completion was not bound to the verified head: $(cat "$case_dir/ado-patch-body.json")"
   assert_no_grep 'bypass' "$case_dir/az.log" "ado-merges: a policy bypass reached az"
   assert_grep "every blocking policy approved at head $ADO_HEAD" "$case_dir/stderr" \
     "ado-merges: the verified head was not reported"
@@ -3751,7 +3760,7 @@ test_ado_never_bypasses_policy_or_redirects_az() {
 }
 
 test_ado_extra_args_forwarded_only_attended() {
-  local case_dir rc update_line flag
+  local case_dir rc flag
   case_dir=$(make_ado_case ado-extra-args)
   set +e
   run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- --delete-source-branch true \
@@ -3777,15 +3786,31 @@ test_ado_extra_args_forwarded_only_attended() {
   case_dir=$(make_ado_case ado-extra-args-strategy)
   run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- --squash true \
     > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "ado-extra-args-strategy: a merge strategy should be forwarded"
-  update_line=$(ado_update_line "$case_dir/az.log")
-  [ "$update_line" = "repos pr update --id 9 --org $ADO_ORG_URL --status completed --only-show-errors -o none --squash true" ] \
-    || fail "ado-extra-args-strategy: strategy not forwarded: '$update_line'"
+  [ "$(jq -c .completionOptions "$case_dir/ado-patch-body.json")" = '{"mergeStrategy":"squash"}' ] \
+    || fail "ado-extra-args-strategy: strategy not mapped: $(cat "$case_dir/ado-patch-body.json")"
+
+  case_dir=$(make_ado_case ado-extra-args-carry)
+  jq '.completionOptions = {"mergeStrategy":"rebase","deleteSourceBranch":false}' "$case_dir/ado.json" > "$case_dir/ado.tmp" \
+    && mv "$case_dir/ado.tmp" "$case_dir/ado.json"
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- --transition-work-items=true --merge-commit-message "msg x" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "ado-extra-args-carry: should merge"
+  [ "$(jq -cS .completionOptions "$case_dir/ado-patch-body.json")" = '{"deleteSourceBranch":false,"mergeCommitMessage":"msg x","mergeStrategy":"rebase","transitionWorkItems":true}' ] \
+    || fail "ado-extra-args-carry: options not carried and merged: $(cat "$case_dir/ado-patch-body.json")"
+
+  case_dir=$(make_ado_case ado-extra-args-unknown)
+  set +e
+  run_ado_merge "$case_dir" task-x1 "$ADO_URL" -- --output json > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "ado-extra-args-unknown: an unmapped flag must be refused"
+  assert_grep 'accepts only --squash' "$case_dir/stderr" "ado-extra-args-unknown: refusal did not name the accepted flags"
+  [ -z "$(ado_update_line "$case_dir/az.log")" ] || fail "ado-extra-args-unknown: a completion was attempted"
 
   case_dir=$(make_ado_case ado-extra-args-attended)
   run_ado_merge "$case_dir" task-x1 "$ADO_URL" --attended-override -- --delete-source-branch true \
     > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "ado-extra-args-attended: attended override should merge"
-  assert_grep 'delete-source-branch true' "$case_dir/az.log" \
-    "ado-extra-args-attended: the attended flag was not forwarded"
+  [ "$(jq -c .completionOptions "$case_dir/ado-patch-body.json")" = '{"deleteSourceBranch":true}' ] \
+    || fail "ado-extra-args-attended: the attended flag was not mapped"
   pass "fm-pr-merge forwards Azure DevOps strategy flags and gates branch deletion on --attended-override"
 }
 
