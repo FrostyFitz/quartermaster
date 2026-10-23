@@ -1,0 +1,11 @@
+ok - fm-attended-backstop: no-op when config/attended-backstop is absent
+ok - fm-attended-backstop: no-op while state/.afk exists
+ok - fm-attended-backstop: no-op while state/.afk-contract exists
+ok - fm-attended-backstop: no-op (and clears a leftover marker) when nothing is in flight
+ok - fm-attended-backstop: no-op (and clears a leftover marker) when the watcher is healthy
+ok - fm-attended-backstop: no-op when unhealthy but under the threshold
+ok - fm-attended-backstop: repair-only re-arm fires exactly once; recovery is silent and clears the episode
+ok - fm-attended-backstop: the re-arm retries every unhealthy tick while the alert fires once per episode and again on a new one
+find: -printf: unknown primary or operator
+find: -printf: unknown primary or operator
+ok - fm-attended-backstop: a healthy cycle writes nothing to state/

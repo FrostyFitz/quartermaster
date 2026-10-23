@@ -1,0 +1,11 @@
+ok - shared action accepts a matching head_sha with completed required steps
+ok - shared action rejects a mismatched head_sha and names both SHAs
+ok - shared action rejects an attestation with no head_sha
+ok - wait script returns as soon as the live body names the current head
+ok - wait script gives up quietly on a genuinely stale attestation and lets the gate judge it
+ok - wait script retries transient errors and bad bodies until the attestation catches up
+ok - wait script stops early only on errors waiting cannot fix
+ok - wait script falls back to defaults when NM_WAIT_* values do not parse
+ok - wait step skips exempt head branches using the gate's separator and whitespace rules
+ok - check-step script detects a missing base-ref wait script and never fails the job
+ok - wait step's if condition is gated on the check step's exists output, not only the event action

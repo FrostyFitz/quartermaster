@@ -1,0 +1,40 @@
+rc=0
+### fm-pr-merge.sh task-x1 https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9
+-- az completion call:
+devops invoke --area git --resource pullRequests --http-method patch --org https://dev.azure.com/exampleorg --api-version 7.1 --in-file <tmp> --route-parameters project=Firmware DevOps repositoryId=mt-base pullRequestId=9 --only-show-errors -o none
+-- PATCH body:
+{
+  "status": "completed",
+  "lastMergeSourceCommit": {
+    "commitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}
+-- stderr (non-banner):
+verified: https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9 is active and mergeable, with every blocking policy approved at head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+rc=0
+### fm-pr-merge.sh task-x1 https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9 -- --squash true --merge-commit-message 'ship it'
+-- az completion call:
+devops invoke --area git --resource pullRequests --http-method patch --org https://dev.azure.com/exampleorg --api-version 7.1 --in-file <tmp> --route-parameters project=Firmware DevOps repositoryId=mt-base pullRequestId=9 --only-show-errors -o none
+-- PATCH body:
+{
+  "status": "completed",
+  "lastMergeSourceCommit": {
+    "commitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "completionOptions": {
+    "mergeStrategy": "squash",
+    "mergeCommitMessage": "ship it"
+  }
+}
+-- stderr (non-banner):
+verified: https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9 is active and mergeable, with every blocking policy approved at head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+rc=1
+### fm-pr-merge.sh task-x1 https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/mt-base/pullrequest/9 -- --output json (unmapped flag refused, no completion sent)
+-- az completion call:
+-- PATCH body:
+(none)
+-- stderr (non-banner):
+error: Azure DevOps completion accepts only --squash, --delete-source-branch, --merge-commit-message, and --transition-work-items after --, not '--output'
+

@@ -1,0 +1,22 @@
+### BEFORE (base fb78439): stub serves 503 -> non-JSON page -> truncated body + connection reset -> attestation for head abc123
+::warning::could not read the live PR body while waiting for the attestation: HTTP Error 503: Service Unavailable
+exit=0
+
+### AFTER (4ad337a): stub serves 503 -> non-JSON page -> truncated body + connection reset -> attestation for head abc123
+::warning::could not read the live PR body while waiting for the attestation, retrying: Expecting value: line 1 column 1 (char 0)
+::warning::could not read the live PR body while waiting for the attestation, retrying: IncompleteRead(12 bytes read, 488 more expected)
+pipeline attestation already names the current head abc123
+exit=0
+
+### BEFORE (base fb78439): NM_WAIT_MAX_SECONDS=1 NM_WAIT_POLL_SECONDS=soon (unparsable)
+  File "/tmp/wdemo/base-wait.py", line 81, in main
+    poll_seconds = float(env("NM_WAIT_POLL_SECONDS", "10"))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: could not convert string to float: 'soon'
+exit=1
+
+### AFTER (4ad337a): NM_WAIT_MAX_SECONDS=1 NM_WAIT_POLL_SECONDS=soon (unparsable)
+::warning::could not read the live PR body while waiting for the attestation, retrying: Expecting value: line 1 column 1 (char 0)
+attestation did not catch up to abc123 within the wait window; judging as-is
+exit=0
+
