@@ -187,6 +187,7 @@ case "${1:-} ${2:-} ${3:-}" in
   "repos pr show")
     [ -z "${FM_FAKE_AZ_READ_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_AZ_READ_LOG"
     [ "${FM_FAKE_AZ_READ_FAIL:-0}" = 1 ] && exit 1
+    [ -z "${FM_FAKE_AZ_DELAY:-}" ] || sleep "$FM_FAKE_AZ_DELAY"
     printf '{"pullRequestId":%s,"status":"%s","repository":{"name":"repo","project":{"name":"Firmware DevOps"}}}\n' \
       "${5:-0}" "${FM_FAKE_AZ_STATE:-completed}"
     exit 0 ;;
@@ -361,6 +362,7 @@ reset_fakes() {
   FM_FAKE_GLAB_READ_LOG=
   FM_FAKE_AZ_STATE=completed
   FM_FAKE_AZ_READ_FAIL=0
+  FM_FAKE_AZ_DELAY=
   FM_FAKE_AZ_READ_LOG=
   FM_FAKE_GERRIT_STATUS=MERGED
   FM_FAKE_GERRIT_CHANGE=
@@ -374,7 +376,7 @@ reset_fakes() {
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
   export FM_FAKE_PR_STATE FM_FAKE_PR_MERGED FM_FAKE_PR_READ_FAIL FM_FAKE_PR_READ_LOG FM_FAKE_PR_STATE_AXI
   export FM_FAKE_GLAB_STATE FM_FAKE_GLAB_READ_FAIL FM_FAKE_GLAB_READ_LOG
-  export FM_FAKE_AZ_STATE FM_FAKE_AZ_READ_FAIL FM_FAKE_AZ_READ_LOG
+  export FM_FAKE_AZ_STATE FM_FAKE_AZ_READ_FAIL FM_FAKE_AZ_READ_LOG FM_FAKE_AZ_DELAY
   export FM_FAKE_GERRIT_STATUS FM_FAKE_GERRIT_CHANGE FM_FAKE_GERRIT_URL_JSON
   export FM_FAKE_GERRIT_READ_FAIL FM_FAKE_GERRIT_READ_LOG
   export FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
@@ -1644,6 +1646,24 @@ test_terminal_passed_with_azuredevops_pull_request_reports_its_state() {
     reset_fakes
   done
   pass "terminal passed run reads Azure DevOps pull request state"
+}
+
+test_terminal_passed_with_cold_azuredevops_read_outlasts_five_seconds() {
+  reset_fakes
+  local d url out
+  url='https://dev.azure.com/exampleorg/Firmware%20DevOps/_git/repo/pullrequest/14'
+  d=$(new_case passed-cold-azuredevops)
+  make_repo_on_branch "$d/wt" fm/feat-dadocold
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-dadocold.meta" "window=fm:fm-feat-dadocold" \
+    "worktree=$d/wt" "kind=ship" "pr=$url"
+  FM_FAKE_AZ_STATE=active
+  FM_FAKE_AZ_DELAY=6
+  FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dadocold "$url")"
+  out=$(run_crew_state "$d" feat-dadocold)
+  assert_contains "$out" "run passed: PR open" "a 6-second az read is not cut at the 5-second bound"
+  reset_fakes
+  pass "terminal passed run waits for a cold az read slower than five seconds"
 }
 
 test_terminal_passed_with_unreadable_azuredevops_pull_request_reports_unknown() {
@@ -5630,6 +5650,7 @@ test_terminal_passed_with_open_gitlab_mr_does_not_claim_merged
 test_terminal_passed_with_merged_gitlab_mr_reports_merged
 test_terminal_passed_with_failed_gitlab_read_reports_unknown
 test_terminal_passed_with_azuredevops_pull_request_reports_its_state
+test_terminal_passed_with_cold_azuredevops_read_outlasts_five_seconds
 test_terminal_passed_with_unreadable_azuredevops_pull_request_reports_unknown
 test_terminal_passed_with_open_gerrit_change_does_not_claim_merged
 test_terminal_passed_with_merged_gerrit_change_reports_merged

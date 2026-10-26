@@ -25,12 +25,11 @@
 #     - the watcher is healthy (bin/fm-wake-lib.sh's model-aware
 #       fm_watcher_supervision_verdict).
 #     - supervision is unhealthy but under FM_ATTENDED_BACKSTOP_THRESHOLD_SECS.
-#     - the current down-episode was already handled (state/.attended-backstop-episode).
 #   Otherwise: starts/attaches the watcher in the background
-#   (bin/fm-watch-arm.sh) and fires the wedge-alarm notifier
-#   (bin/fm-supervise-daemon.sh's wedge_alarm_notify), unconditionally and
-#   regardless of whether the re-arm succeeds - the alert is the one step a
-#   dead process can never prevent. Never touches state/.lock: a dead
+#   (bin/fm-watch-arm.sh) on every unhealthy tick, and fires the wedge-alarm
+#   notifier (bin/fm-supervise-daemon.sh's wedge_alarm_notify) once per
+#   down-episode (state/.attended-backstop-episode), regardless of whether the
+#   re-arm succeeds - the alert is the one step a dead process can never prevent. Never touches state/.lock: a dead
 #   session-lock owner is bin/fm-lock.sh's job, a different and bigger
 #   authority than this script's.
 #   Env knobs:
@@ -139,9 +138,8 @@ down_age=$(fm_attended_backstop_down_age "$STATE")
 case "$down_age" in ''|*[!0-9]*) down_age=999999 ;; esac
 [ "$down_age" -ge "$THRESHOLD" ] || exit 0
 
-fm_attended_backstop_claim_episode "$FM_WATCHER_VERDICT_REASON" || exit 0
-
-# --- repair: re-arm. Cheapest possible action: restores the watcher so FUTURE
+# --- repair: re-arm, on every unhealthy tick so an arm that died at once is
+# retried; only the alert below is claimed once per episode. Cheapest possible action: restores the watcher so FUTURE
 # events are not silently dropped; does not by itself wake an idle primary.
 # This script is a short-lived timer run, so it backgrounds the arm exactly as
 # every other arm owner must (bin/fm-watch-arm.sh's own header): started/
@@ -155,7 +153,8 @@ disown 2>/dev/null || true
 # --- alert: the unconditional floor. Always attempted regardless of whether
 # repair succeeds, with attended-specific wording so it reads differently from
 # an away-mode wedge (nobody declared themselves away; something just died).
-summary=$(printf 'attended supervision stopped responding (%s, down %ss) - the watcher was re-armed; see state/.attended-backstop-episode' \
+fm_attended_backstop_claim_episode "$FM_WATCHER_VERDICT_REASON" || exit 0
+summary=$(printf 'attended supervision stopped responding (%s, down %ss) - a re-arm was attempted; see state/.attended-backstop-arm.log' \
   "$FM_WATCHER_VERDICT_REASON" "$down_age")
 wedge_alarm_notify "$summary" "$EPISODE_MARKER" "firstmate: attended supervision WEDGED"
 

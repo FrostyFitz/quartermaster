@@ -18,11 +18,11 @@ Each tick is also a no-op whenever any of these holds, so the common case costs 
 - Supervision is not needed (`bin/fm-supervision-lib.sh`).
 - The watcher is healthy (`bin/fm-wake-lib.sh`'s model-aware `fm_watcher_supervision_verdict`).
 - Supervision is unhealthy but under `FM_ATTENDED_BACKSTOP_THRESHOLD_SECS` (default 1800s - twice the arm layer's own stall bound, so ordinary self-healing has already had every chance to work before this backstop acts).
-- The current down-episode was already handled (`state/.attended-backstop-episode`, cleared on recovery).
 
 ## What it does
 
-Past the threshold, on the first tick of a down-episode: it starts or attaches the watcher in the background (`bin/fm-watch-arm.sh`), then always fires the wedge-alarm notifier (`bin/fm-supervise-daemon.sh`'s `wedge_alarm_notify`, [`wedge-alarm.md`](wedge-alarm.md)) with attended-specific wording, regardless of whether the re-arm succeeds.
+Past the threshold, on every unhealthy tick, it starts or attaches the watcher in the background (`bin/fm-watch-arm.sh`, logging to `state/.attended-backstop-arm.log`), so an arm that died at once is retried on the next tick.
+Once per down-episode (`state/.attended-backstop-episode`, cleared on recovery) it also fires the wedge-alarm notifier (`bin/fm-supervise-daemon.sh`'s `wedge_alarm_notify`, [`wedge-alarm.md`](wedge-alarm.md)) with attended-specific wording saying a re-arm was attempted, regardless of whether the re-arm succeeds.
 It never touches `state/.lock`: a dead session-lock owner is `bin/fm-lock.sh`'s job, a different and bigger authority than this script's.
 
 ## Install
@@ -57,4 +57,4 @@ rm config/attended-backstop
 
 ## Tests
 
-`tests/fm-attended-backstop.test.sh` covers the no-op matrix, a single repair-only re-arm with a silent recovery tick, the alert floor firing once per episode and again on a new episode, and a healthy cycle writing nothing to `state/`.
+`tests/fm-attended-backstop.test.sh` covers the no-op matrix, a single repair-only re-arm with a silent recovery tick, the re-arm retried on every unhealthy tick while the alert floor fires once per episode and again on a new episode, and a healthy cycle writing nothing to `state/`.

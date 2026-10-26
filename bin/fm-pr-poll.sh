@@ -188,8 +188,9 @@ case "$provider" in
     esac
     for segment in "$project" "$repo"; do
       [ "${#segment}" -ge 1 ] && [ "${#segment}" -le 512 ] || exit 0
+      [[ "$segment" =~ ^([A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+$ ]] || exit 0
       case "$segment" in
-        .|..|-*|*/*|*%2[Ff]*|*%5[Cc]*|*%0*|*%1*|*%[!0-9A-Fa-f]*|*%[0-9A-Fa-f]|*%|*[!A-Za-z0-9._~%-]*) exit 0 ;;
+        .|..|-*|*%2[Ff]*|*%5[Cc]*|*%0*|*%1*) exit 0 ;;
       esac
     done
     [ "$url" = "https://dev.azure.com/$path/pullrequest/$number" ] || exit 0

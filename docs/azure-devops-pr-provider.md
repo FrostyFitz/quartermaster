@@ -67,20 +67,18 @@ $ az devops invoke --area git --resource pullRequestThreads \
     --org https://dev.azure.com/<org> --api-version 7.1 -o json
 ```
 
-Passing the percent-encoded project and repository as they appear in the URL was accepted by the server.
+The project and repository are passed decoded, so that `az`'s own route encoding is the only encoding applied.
 Every non-system, non-deleted comment by someone other than the author is an incoming signal, because only members of the organization can comment.
 
 ## Merging
 
-The merge is `az repos pr update --id <id> --org https://dev.azure.com/<org> --status completed`, after the live conditions in `bin/fm-pr-merge.sh`'s header hold.
+The merge is `az devops invoke --area git --resource pullRequests --http-method patch` against the pull request, with `{"status":"completed","lastMergeSourceCommit":{"commitId":"<verified head>"}}` as the body, after the live conditions in `bin/fm-pr-merge.sh`'s header hold.
 `--bypass-policy` is never passed and is refused in the extra arguments on every path.
 `az` accepts any unambiguous prefix of a long option, so every guard on the extra arguments also refuses any prefix of a protected flag, such as `--orga` for `--organization` or `--auto-comp` for `--auto-complete`.
 
-The extension's `update_pull_request` for `--status completed` reads the pull request again and sends that fresh `lastMergeSourceCommit`, so `az` cannot be bound to the head this run verified the way `gh --match-head-commit` and `glab --sha` bind it.
-A push landing between the verification and the completion is therefore not refused.
-Branch policy evaluates the new commit, so most such pushes are blocked by the server, but a policy that does not reset on push would not block one.
-The read-back after completion compares the merged head with the verified head and reports any difference as actionable.
-Binding the completion would take the REST call through `az devops invoke` with the verified head in the body, which this provider does not do.
+Naming the verified head in the body binds the completion to it, as `gh --match-head-commit` and `glab --sha` do, so the server refuses a pull request whose source branch has moved.
+The extra arguments after `--` map only the completion flags `--squash`, `--delete-source-branch`, `--merge-commit-message`, and `--transition-work-items` into the body's `completionOptions`, over the pull request's own options, and any other flag is refused. An attended `--attended-override -- --auto-complete true` request does not request an immediate completion: it runs `az repos pr update` without `--status completed`, with the extra arguments as given, so it only sets auto-complete, and Azure DevOps completes the pull request itself only after its branch policies pass on the head it completes. That request is handled as queued, with no landed outcome recorded and the merge poll left armed.
+The read-back after completion still compares the merged head with the verified head and reports any difference as actionable.
 
 ## Reading it back
 

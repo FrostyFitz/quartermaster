@@ -44,7 +44,7 @@
 # and is cut down to the watcher's own per-check bound (FM_CHECK_TIMEOUT,
 # default 30, read from the poll's environment because the watcher runs it as
 # a direct child) with a three-second margin. Every read is capped at five
-# seconds, and a read killed at that bound or at the deadline is budget
+# seconds (twenty for az, whose cold start is slow), and a read killed at that bound or at the deadline is budget
 # refusal, never a forge failure. A pull observation has three
 # dependent waves: core, six independent reads, then the closing head read;
 # an issue has two waves. Before starting a URL, poll reserves the smaller of
@@ -209,11 +209,13 @@ write_record() { # task record-json-file
 }
 
 forge() {
-  local remaining rc=0 forge_err=${FORGE_ERR:-$TMP/forge.err}
+  local remaining rc=0 forge_err=${FORGE_ERR:-$TMP/forge.err} bound=5
+  # A cold az is a Python CLI whose startup alone is often 2-5s.
+  [ "${FORGE_TOOL:-gh}" != az ] || bound=20
   remaining=$((DEADLINE - $(date +%s)))
   # The budget, not the forge, refused this read.
   [ "$remaining" -gt 0 ] || { BUDGET_EXHAUSTED=1; : > "$TMP/budget-exhausted"; return 1; }
-  [ "$remaining" -le 5 ] || remaining=5
+  [ "$remaining" -le "$bound" ] || remaining=$bound
   fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
     "${FORGE_TOOL:-gh}" "$@" 2> "$forge_err" || rc=$?
   # A kill at the read bound or the deadline is budget refusal too; only the
@@ -326,8 +328,8 @@ observe_ado() { # canonical Azure DevOps URL -> normalized JSON
   path=$FM_PR_PATH
   number=$FM_PR_NUMBER
   org=$(fm_pr_ado_org_url "$path")
-  project=${path#*/}; project=${project%%/*}
-  repository=${path##*/}
+  project=${path#*/}; project=$(fm_pr_ado_decode "${project%%/*}")
+  repository=$(fm_pr_ado_decode "${path##*/}")
   rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable"
   BUDGET_EXHAUSTED=0
   FORGE_TOOL=az forge repos pr show --id "$number" --org "$org" --only-show-errors -o json > "$TMP/core.json" || return 1
