@@ -131,7 +131,8 @@ PY
 # port (written once its socket is bound) and prints it, empty on timeout.
 fm_wait_for_stub_port() {
   local port_file=$1
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  local attempt
+  for ((attempt = 0; attempt < 100; attempt++)); do
     if [ -s "$port_file" ]; then
       cat "$port_file"
       return 0
