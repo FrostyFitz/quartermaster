@@ -1,0 +1,16 @@
+[before] port-file-already-present      port=4242   elapsed=0.02s
+[before] port-file-after-0.5s           port=4242   elapsed=0.77s
+[before] port-file-after-3s(slow)       port=4242   elapsed=3.27s
+[before] port-file-after-8s(very-slow)  port=<none> elapsed=3.60s
+[before] port-file-never-appears        port=<none> elapsed=3.57s
+[after] port-file-already-present      port=4242   elapsed=0.02s
+[after] port-file-after-0.5s           port=4242   elapsed=0.69s
+[after] port-file-after-3s(slow)       port=4242   elapsed=3.15s
+[after] port-file-after-8s(very-slow)  port=4242   elapsed=8.20s
+[after] port-file-never-appears        port=<none> elapsed=17.38s
+
+# Real fm_wait_for_stub_port bodies extracted from 766dbc2 (before) and 192306e (after),
+# driven by a background writer that creates the port file after the given delay.
+# Host: macOS, /bin/bash 3.2.57. Note: `sleep 0.1` measures ~0.20-0.25s per call here,
+# so the 100-iteration cap measured 17.4s / 17.9s wall clock on the never-appears path
+# (before: 20 iterations ~3.6s).
