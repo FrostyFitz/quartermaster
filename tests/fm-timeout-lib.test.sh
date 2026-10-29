@@ -109,7 +109,7 @@ test_the_bound_replaces_the_calling_shell() {
     rm -f "$dir/caller" "$dir/parent"
     (
       . "$ROOT/bin/fm-timeout-lib.sh"
-      printf '%s\n' "$BASHPID" > "$dir/caller"
+      printf '%s\n' "${BASHPID:-$(exec /bin/sh -c 'printf "%s\n" "$PPID"')}" > "$dir/caller"
       PATH=$path fm_exec_timed 5 1 bash -c 'echo "$PPID" > "$1"' _ "$dir/parent"
     ) || fail "the bounded probe failed under PATH=$path"
     caller=$(cat "$dir/caller")
@@ -211,7 +211,7 @@ test_an_owner_that_dies_during_startup_ends_the_command() {
   PATH=$PERL_ONLY bash -c '
     . "$1/bin/fm-timeout-lib.sh"
     (
-      echo "$BASHPID" > "$2/watchdog"
+      echo "${BASHPID:-$(exec /bin/sh -c "echo \$PPID")}" > "$2/watchdog"
       while kill -0 "$$" 2>/dev/null; do sleep 0.05; done
       fm_exec_timed 60 1 bash -c "exec sleep 300"
     ) >/dev/null 2>&1 &
@@ -228,6 +228,48 @@ test_an_owner_that_dies_during_startup_ends_the_command() {
     sleep 0.02
   done
   pass "fm_exec_timed ends the command when its owner dies during watchdog startup"
+}
+
+# Stock macOS bash 3.2 has no BASHPID: the call must still run and replace a
+# top-level caller, and from a subshell still capture the calling script as
+# the owner whose death ends the command.
+test_owner_capture_works_without_bashpid() {
+  local dir pid rc=0 watchdog started
+  dir="$TMP_ROOT/no-bashpid"
+  mkdir -p "$dir"
+  # shellcheck disable=SC2016
+  PATH=$PERL_ONLY bash -c '
+    unset BASHPID
+    . "$1/bin/fm-timeout-lib.sh"
+    fm_exec_timed 5 1 bash -c "echo \$PPID > \"\$1\"" _ "$2/parent"
+  ' _ "$ROOT" "$dir" 2>"$dir/top.err" &
+  pid=$!
+  wait "$pid" || rc=$?
+  [ "$rc" -eq 0 ] || fail "a top-level call without BASHPID failed (rc=$rc): $(cat "$dir/top.err")"
+  [ "$(cat "$dir/parent")" = "$pid" ] || fail "a top-level call without BASHPID did not replace its caller"
+  # shellcheck disable=SC2016
+  PATH=$PERL_ONLY bash -c '
+    unset BASHPID
+    . "$1/bin/fm-timeout-lib.sh"
+    (
+      echo "$(exec /bin/sh -c "echo \$PPID")" > "$2/watchdog"
+      while kill -0 "$$" 2>/dev/null; do sleep 0.05; done
+      fm_exec_timed 60 1 bash -c "exec sleep 300"
+    ) >/dev/null 2>"$2/sub.err" &
+    exit 0
+  ' _ "$ROOT" "$dir"
+  wait_for_file "$dir/watchdog"
+  watchdog=$(cat "$dir/watchdog")
+  started=$SECONDS
+  while kill -0 "$watchdog" 2>/dev/null; do
+    if [ "$((SECONDS - started))" -ge 15 ]; then
+      kill -KILL "$watchdog" 2>/dev/null || true
+      fail "without BASHPID a subshell call did not take the calling script as its owner"
+    fi
+    sleep 0.02
+  done
+  [ ! -s "$dir/sub.err" ] || fail "a subshell call without BASHPID failed: $(cat "$dir/sub.err")"
+  pass "fm_exec_timed captures its owner without BASHPID, as stock macOS bash 3.2 runs it"
 }
 
 # perl is preferred whenever it exists, because only its watchdog can reap a
@@ -337,6 +379,7 @@ test_a_descendant_holding_the_output_cannot_outlast_the_bound
 test_a_signal_to_the_bounding_process_reaches_the_command
 test_a_named_owner_that_is_gone_ends_the_command
 test_an_owner_that_dies_during_startup_ends_the_command
+test_owner_capture_works_without_bashpid
 test_perl_is_preferred_over_timeout
 test_refuses_rather_than_running_unbounded
 test_rejects_malformed_bounds_before_running_anything
