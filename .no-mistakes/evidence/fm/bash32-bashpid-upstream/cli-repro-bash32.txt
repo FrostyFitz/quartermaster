@@ -1,0 +1,14 @@
+$ /bin/bash -c 'set -u; . old-lib; fm_exec_timed 5 1 echo worker-started'   # f10a7b7
+/var/folders/hy/p85kb3sn0bj75pg1rsrqf5040000gp/T/tmp.rlP6ZgQmJD/old.sh: line 224: BASHPID: unbound variable
+exit=127
+$ subshell call (worker spawn pattern):
+/var/folders/hy/p85kb3sn0bj75pg1rsrqf5040000gp/T/tmp.rlP6ZgQmJD/old.sh: line 224: BASHPID: unbound variable
+exit=127
+
+$ /bin/bash -c 'set -u; . new-lib; fm_exec_timed 5 1 echo worker-started'   # cf0fd1a
+worker-started
+exit=0
+$ subshell call (worker spawn pattern):
+owner-alive
+exit=7
+
