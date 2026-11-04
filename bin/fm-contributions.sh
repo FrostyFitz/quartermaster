@@ -241,7 +241,7 @@ forge() {
     rc=0
     fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
       "${FORGE_TOOL:-gh}" "$@" 2> "$forge_err" || rc=$?
-    [ "$rc" -ne 0 ] || return 0
+    [ "$rc" -ne 0 ] || { : > "$forge_err"; return 0; }
     # A kill at the read bound or the deadline is budget refusal; only the
     # forge's own nonzero exit is unavailable evidence, and only that kind
     # gets a bounded retry: a transient secondary-rate-limit or 5xx/429
@@ -320,7 +320,7 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
     jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null || return 1
     forge pr view "$url" --json headRefOid,reviewDecision > "$TMP/after.json" || return 1
     after=$(jq -er .headRefOid "$TMP/after.json")
-    [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
+    [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge-detail.err"; return 1; }
     jq -n --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" \
       --slurpfile reviews "$TMP/reviews.json" --slurpfile inline "$TMP/inline.json" --slurpfile after "$TMP/after.json" --slurpfile checks "$TMP/checks.json" \
       --slurpfile statuses "$TMP/statuses.json" --slurpfile repo "$TMP/repo.json" '
@@ -396,7 +396,7 @@ observe_ado() { # canonical Azure DevOps URL -> normalized JSON
   jq -e 'type == "object" and (.value | type) == "array"' "$TMP/threads.json" >/dev/null || return 1
   FORGE_TOOL=az forge repos pr show --id "$number" --org "$org" --only-show-errors -o json > "$TMP/after.json" || return 1
   after=$(fm_pr_ado_check_record "$path" "$number" < "$TMP/after.json" | jq -er '.lastMergeSourceCommit.commitId') || return 1
-  [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
+  [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge-detail.err"; return 1; }
   jq -n --arg url "$url" --slurpfile core "$TMP/core-checked.json" --slurpfile policies "$TMP/policies.json" \
     --slurpfile threads "$TMP/threads.json" "$FM_PR_ADO_REVIEW_POLICY_JQ"'
     $core[0] as $c

@@ -718,6 +718,7 @@ test_shared_url_observed_once() {
     else
       case "$mode" in
         fail) expected='"forge observation unavailable or changed during read: HTTP 502"' ;;
+        head) expected='"forge observation unavailable or changed during read: head changed during observation"' ;;
         *) expected='"forge observation unavailable or changed during read"' ;;
       esac
       [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
