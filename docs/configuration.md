@@ -328,6 +328,7 @@ The `/afk` sub-supervisor injects escalation digests into quartermaster's own pa
 It currently supports only `tmux` supervisor panes.
 
 Set `FM_SUPERVISOR_BACKEND=tmux` and `FM_SUPERVISOR_TARGET=<target>` to override both axes explicitly.
+Accepted targets are `%pane-id`, `@window-id`, `session:@window-id`, a bare session, `session:window-name`, `session:index`, `session:index.pane-index`, and the supported `=session:=window` exact-marker forms; the `fm_backend_target_exists` header in `bin/fm-backend.sh` owns this grammar.
 Without overrides, backend detection uses `$TMUX_PANE`.
 
 Target detection uses `FM_SUPERVISOR_TARGET`, then `$TMUX_PANE`, then the legacy `firstmate:0` tmux fallback with a warning.
@@ -1760,7 +1761,7 @@ FM_SEND_SETTLE=1        # seconds fm-send waits after a successful typed-plane s
 FM_PENDING_REPLY_GRACE_SECS=120   # seconds after the request turn completes without a correlated parent report before its one recovery repost is eligible, and after the recovery turn completes before the missed-report escalation is eligible; never counted from delivery
 # sub-supervisor (bin/fm-supervise-daemon.sh); presence-gated via /afk
 FM_SUPERVISOR_BACKEND=             # optional supervisor pane backend override; tmux only, otherwise detects $TMUX_PANE
-FM_SUPERVISOR_TARGET=              # optional supervisor pane target override; tmux target, otherwise auto-detected
+FM_SUPERVISOR_TARGET=              # optional supervisor pane target override; tmux uses the exact forms owned by fm_backend_target_exists in bin/fm-backend.sh, otherwise auto-detected
 FM_INJECT_SKIP=heartbeat           # |-prefixes force-self-handled bypassing classification; empty disables
 FM_ESCALATE_BATCH_SECS=90          # buffer window for batched escalation digests; 0 = flush immediately
 FM_MAX_DEFER_SECS=300              # max buffered escalation age before retry plus wedge alarm; 0 disables
