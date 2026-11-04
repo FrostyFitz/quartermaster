@@ -3754,9 +3754,13 @@ test_lsof_absent_reaps_tmux_process_group() {
   kill -0 "$pid" 2>/dev/null || fail "lsof-absent-process-group-reap: setup sleeper did not start"
   cat > "$case_dir/fakebin/tmux" <<EOF
 #!/usr/bin/env bash
-if [ "\${1:-}" = display-message ] && [ "\${*: -1}" = '#{pane_pid}' ]; then
-  printf '%s\n' '$pid'
-fi
+case "\${1:-}" in
+  display-message)
+    [ "\${*: -1}" = '#{pane_pid}' ] && printf '%s\n' '$pid'
+    ;;
+  list-windows) printf '%s\n' fm-task-x1 ;;
+  list-panes) printf '%s %s\n' '%0' '$pid' ;;
+esac
 exit 0
 EOF
   chmod +x "$case_dir/fakebin/tmux"
@@ -3773,6 +3777,98 @@ EOF
   assert_grep "reaping leaked worktree process group" "$case_dir/stderr" \
     "lsof-absent-process-group-reap: teardown did not use the process-group fallback"
   pass "missing lsof falls back to reaping the tmux pane process group"
+}
+
+# tmux's display-message silently falls back to the session's active pane for
+# a gone target instead of failing (docs/verification/runtime-backends.md), so
+# a recorded window that is already gone must be read as gone - never signal
+# whatever process the fallback would have named - rather than treated as a
+# process group to reap.
+test_lsof_absent_missing_window_signals_nothing() {
+  local case_dir rc pid path_without_lsof
+  case_dir=$(make_case lsof-absent-missing-window)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  path_without_lsof=$(make_path_without_lsof "$case_dir")
+  PATH="$path_without_lsof" command -v lsof >/dev/null 2>&1 \
+    && fail "lsof-absent-missing-window: fixture path unexpectedly exposes lsof"
+
+  perl -e 'setpgrp(0, 0); chdir shift or die; exec "sleep", "300"' "$case_dir/wt" &
+  pid=$!
+  disown
+  sleep 0.3
+  kill -0 "$pid" 2>/dev/null || fail "lsof-absent-missing-window: setup sleeper did not start"
+  cat > "$case_dir/fakebin/tmux" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in
+  display-message)
+    [ "\${*: -1}" = '#{pane_pid}' ] && printf '%s\n' '$pid'
+    ;;
+  list-windows) printf '%s\n' other-window ;;
+  list-panes) printf '%s %s\n' '%0' '$pid' ;;
+esac
+exit 0
+EOF
+  chmod +x "$case_dir/fakebin/tmux"
+
+  rc=0
+  FM_TEARDOWN_TEST_PATH="$path_without_lsof" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  expect_code 0 "$rc" "lsof-absent-missing-window: teardown should still succeed"
+  if ! kill -0 "$pid" 2>/dev/null; then
+    fail "lsof-absent-missing-window: a gone window's recorded leader must never be signaled"
+  fi
+  kill -KILL "$pid" 2>/dev/null || true
+  assert_grep "already gone" "$case_dir/stderr" \
+    "lsof-absent-missing-window: teardown did not report the window as already gone"
+  assert_not_contains "$(cat "$case_dir/stderr")" "reaping leaked worktree process group" \
+    "lsof-absent-missing-window: teardown reaped a process group for a window it never confirmed"
+  pass "a gone recorded window signals nothing through the no-lsof process-group fallback"
+}
+
+# The same silent active-pane fallback could, on a live window, hand teardown's
+# own pane back as the "leader" to reap. Refuse outright when the resolved
+# pane is the caller's own $TMUX_PANE rather than risk signaling it.
+test_lsof_absent_refuses_own_tmux_pane() {
+  local case_dir rc pid path_without_lsof
+  case_dir=$(make_case lsof-absent-own-pane)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  path_without_lsof=$(make_path_without_lsof "$case_dir")
+  PATH="$path_without_lsof" command -v lsof >/dev/null 2>&1 \
+    && fail "lsof-absent-own-pane: fixture path unexpectedly exposes lsof"
+
+  perl -e 'setpgrp(0, 0); chdir shift or die; exec "sleep", "300"' "$case_dir/wt" &
+  pid=$!
+  disown
+  sleep 0.3
+  kill -0 "$pid" 2>/dev/null || fail "lsof-absent-own-pane: setup sleeper did not start"
+  cat > "$case_dir/fakebin/tmux" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in
+  display-message)
+    [ "\${*: -1}" = '#{pane_pid}' ] && printf '%s\n' '$pid'
+    ;;
+  list-windows) printf '%s\n' fm-task-x1 ;;
+  list-panes) printf '%s %s\n' '%caller' '$pid' ;;
+esac
+exit 0
+EOF
+  chmod +x "$case_dir/fakebin/tmux"
+
+  rc=0
+  FM_TEARDOWN_TEST_PATH="$path_without_lsof" TMUX_PANE='%caller' \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  expect_code 0 "$rc" "lsof-absent-own-pane: teardown should still succeed"
+  if ! kill -0 "$pid" 2>/dev/null; then
+    fail "lsof-absent-own-pane: teardown must never signal the caller's own \$TMUX_PANE"
+  fi
+  kill -KILL "$pid" 2>/dev/null || true
+  assert_grep "refusing to signal teardown's own pane" "$case_dir/stderr" \
+    "lsof-absent-own-pane: teardown did not report refusing its own pane"
+  pass "the no-lsof process-group fallback refuses to signal the caller's own \$TMUX_PANE"
 }
 
 test_lsof_error_refuses_before_removal() {
@@ -4339,6 +4435,8 @@ test_own_autonomous_run_is_left_alone
 test_leaked_worktree_process_is_reaped
 test_leaked_tasktmp_process_is_reaped
 test_lsof_absent_reaps_tmux_process_group
+test_lsof_absent_missing_window_signals_nothing
+test_lsof_absent_refuses_own_tmux_pane
 test_lsof_error_refuses_before_removal
 test_reused_pid_identity_is_not_force_killed
 test_exec_changed_process_is_still_reaped

@@ -50,11 +50,10 @@ fm_backend_tmux_visible_capture() {  # <target>
   tmux capture-pane -p -t "$1" -S -0
 }
 
-# fm_backend_tmux_send_key: one named key. Mirrors fm-send.sh's --key path:
-# `tmux display-message -p -t "$T" '#{pane_id}' >/dev/null`, then
-# `tmux send-keys -t "$T" "$2"`.
+# fm_backend_tmux_send_key: one named key. Tmux can prefix-match a gone target
+# to a live neighbor, so require exact membership before sending the key.
 fm_backend_tmux_send_key() {  # <target> <key>
-  tmux display-message -p -t "$1" '#{pane_id}' >/dev/null
+  fm_backend_tmux_target_exists "$1" || return 1
   tmux send-keys -t "$1" "$2"
 }
 
@@ -108,8 +107,11 @@ fm_backend_tmux_create_task() {  # <session> <window-name> <proj-abs> -> prints 
 
 # fm_backend_tmux_current_path: the live pane's current working directory, or
 # empty on any tmux error. Mirrors fm-spawn.sh's worktree-discovery poll:
-# `tmux display-message -p -t "$T" '#{pane_current_path}'`.
+# `tmux display-message -p -t "$T" '#{pane_current_path}'`. Tmux falls back to
+# the active window for a gone target rather than failing, so exact membership
+# is confirmed first - the same fix fm_backend_tmux_send_key needed.
 fm_backend_tmux_current_path() {  # <target>
+  fm_backend_tmux_target_exists "$1" || return 1
   tmux display-message -p -t "$1" '#{pane_current_path}' 2>/dev/null
 }
 
@@ -155,6 +157,84 @@ fm_backend_tmux_window_inventory() {  # <session-target>
       ;;
   esac
   return 1
+}
+
+# Resolve one exact window selector in one exact session to its stable id.
+# The shared dispatcher header owns the accepted target grammar.
+fm_backend_tmux_window_id() {  # <session-name> <window-name|index|@id>
+  local session=$1 selector=$2 rows window_id window_index window_name
+  rows=$(LC_ALL=C tmux list-windows -t "=$session" \
+    -F '#{window_id}|#{window_index}|#{window_name}' 2>/dev/null) || return 1
+  while IFS='|' read -r window_id window_index window_name; do
+    case "$selector" in
+      @*) [ "$window_id" = "$selector" ] || continue ;;
+      *[!0-9]*) [ "$window_name" = "$selector" ] || continue ;;
+      *) [ "$window_index" = "$selector" ] || continue ;;
+    esac
+    printf '%s\n' "$window_id"
+    return 0
+  done <<EOF
+$rows
+EOF
+  return 1
+}
+
+# Adapter-owned tmux endpoint membership. Every comparison is literal and
+# session-scoped where the target names a session, so tmux never gets a chance
+# to satisfy the predicate through its prefix, pattern, or active-window
+# fallbacks.
+fm_backend_tmux_target_exists() {  # <target>
+  local target=${1:-} session selector windows base pane_index window_id
+  [ -n "$target" ] || return 1
+  case "$target" in
+    %*)
+      tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fqx -- "$target"
+      ;;
+    @*)
+      tmux list-windows -a -F '#{window_id}' 2>/dev/null | grep -Fqx -- "$target"
+      ;;
+    *:*:*)
+      return 1
+      ;;
+    *:*)
+      session=${target%%:*}
+      selector=${target#*:}
+      case "$session" in =*) session=${session#=} ;; esac
+      case "$selector" in =*) selector=${selector#=} ;; esac
+      [ -n "$session" ] && [ -n "$selector" ] || return 1
+
+      case "$selector" in
+        @*) fm_backend_tmux_window_id "$session" "$selector" >/dev/null ; return ;;
+        *[!0-9]*) ;;
+        *) fm_backend_tmux_window_id "$session" "$selector" >/dev/null ; return ;;
+      esac
+
+      windows=$(fm_backend_tmux_window_inventory "=$session") || return 1
+      if printf '%s\n' "$windows" | grep -Fqx -- "$selector"; then
+        return 0
+      fi
+
+      case "$selector" in
+        *.*)
+          base=${selector%.*}
+          pane_index=${selector##*.}
+          [ -n "$base" ] && [ -n "$pane_index" ] || return 1
+          case "$base" in *[!0-9]*) return 1 ;; esac
+          case "$pane_index" in *[!0-9]*) return 1 ;; esac
+          window_id=$(fm_backend_tmux_window_id "$session" "$base") || return 1
+          tmux list-panes -t "$window_id" -F '#{pane_index}' 2>/dev/null \
+            | grep -Fqx -- "$pane_index"
+          ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *)
+      session=$target
+      case "$session" in =*) session=${session#=} ;; esac
+      [ -n "$session" ] || return 1
+      tmux has-session -t "=$session" 2>/dev/null
+      ;;
+  esac
 }
 
 # fm_backend_tmux_kill: remove one explicitly named task window.
@@ -211,8 +291,11 @@ fm_backend_tmux_kill() {  # <target>
 # "sleep 30"` alone reports "sleep" because bash execs directly into it, but
 # a persisting parent script running `sleep` as a child reports the PARENT's
 # own name throughout; the value reverts to the shell's own name only once
-# the foreground command actually exits). Empty on any tmux error.
+# the foreground command actually exits). Empty on any tmux error, including
+# a target whose exact window membership no longer holds (tmux would
+# otherwise fall back to the active window rather than failing).
 fm_backend_tmux_current_command() {  # <target>
+  fm_backend_tmux_target_exists "$1" || return 1
   tmux display-message -p -t "$1" '#{pane_current_command}' 2>/dev/null
 }
 
@@ -242,12 +325,14 @@ fm_backend_tmux_current_command() {  # <target>
 # `pi-signed` wrapper and a `pi` engine in one group), so no launcher needs its
 # own special case here.
 #
-# Like fm_backend_tmux_current_command this is a RAW pane read: tmux answers an
-# absent target from the client's active window rather than failing, so callers
-# must confirm exact window membership first, exactly as the classifier below
-# does, or they will describe some other pane entirely.
+# Like fm_backend_tmux_current_command this would otherwise be a RAW pane
+# read: tmux answers an absent target from the client's active window rather
+# than failing, so exact window membership is confirmed first, exactly as the
+# classifier below needs - without it this would describe some other pane
+# entirely.
 fm_backend_tmux_foreground_comms() {  # <target>
   local target=$1 tty pid pgid tpgid comm
+  fm_backend_tmux_target_exists "$target" || return 0
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
   [ -n "$tty" ] || return 0
   LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null \
@@ -263,6 +348,7 @@ fm_backend_tmux_foreground_comms() {  # <target>
 # argv[0]; bin/fm-gemini-lib.sh owns what counts as evidence inside one.
 fm_backend_tmux_foreground_args() {  # <target>
   local target=$1 tty pid pgid tpgid comm args
+  fm_backend_tmux_target_exists "$target" || return 0
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
   [ -n "$tty" ] || return 0
   LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null \
@@ -276,6 +362,7 @@ fm_backend_tmux_foreground_args() {  # <target>
 
 fm_backend_tmux_foreground_pids() {  # <target>
   local target=$1 tty pid pgid tpgid comm
+  fm_backend_tmux_target_exists "$target" || return 0
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
   [ -n "$tty" ] || return 0
   LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null \
@@ -288,6 +375,7 @@ fm_backend_tmux_foreground_pids() {  # <target>
 
 fm_backend_tmux_foreground_argv0s() {  # <target>
   local target=$1 tty pid pgid tpgid comm args argv0
+  fm_backend_tmux_target_exists "$target" || return 0
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
   [ -n "$tty" ] || return 0
   LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null \

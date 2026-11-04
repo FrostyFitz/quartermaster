@@ -2127,17 +2127,33 @@ $dir_pids"
 }
 
 reap_task_backend_process_group() {  # <label>
-  local label=$1 leader leader_start pgid current_pgid own_pgid
+  local label=$1 leader leader_start pgid current_pgid own_pgid pane_line pane_id
   if [ "$BACKEND" != tmux ]; then
     echo "warning: lsof is unavailable; cannot resolve a process-group fallback for $BACKEND task $ID" >&2
     return 0
   fi
-  leader=$(tmux display-message -p -t "$T" '#{pane_pid}' 2>/dev/null) || leader=""
+  # tmux display-message falls back to the session's active pane for a gone
+  # target instead of failing (verified empirically, docs/verification/
+  # runtime-backends.md), which can hand the leader pid of an unrelated pane -
+  # including firstmate's own - to the kill below. Confirm exact window
+  # membership first, then resolve the pane through list-panes, which fails
+  # outright for a gone target rather than falling back.
+  if ! fm_backend_target_exists tmux "$T"; then
+    echo "teardown: tmux window $T for $ID is already gone; nothing to reap" >&2
+    return 0
+  fi
+  pane_line=$(tmux list-panes -t "$T" -F '#{pane_id} #{pane_pid}' 2>/dev/null | head -n1) || pane_line=""
+  pane_id=${pane_line%% *}
+  leader=${pane_line#* }
   case "$leader" in ''|*[!0-9]*)
     echo "warning: lsof is unavailable; cannot resolve the tmux pane process group for $ID" >&2
     return 0
     ;;
   esac
+  if [ -n "${TMUX_PANE:-}" ] && [ "$pane_id" = "$TMUX_PANE" ]; then
+    echo "warning: lsof is unavailable; refusing to signal teardown's own pane for $ID" >&2
+    return 0
+  fi
   leader_start=$(task_process_identity "$leader") || {
     echo "warning: lsof is unavailable; cannot identify the tmux pane process group for $ID" >&2
     return 0

@@ -131,6 +131,19 @@ zsh
 A persistent parent shell waiting for a child remained reported as the parent process, while a shell that directly execed a simple command changed identity with the process itself.
 Pi and pi-signed 0.82.0 were reverified on 2026-07-27 through real isolated `fm-spawn.sh` launches.
 
+### Gone-window target reads fall back to the active pane
+
+Verified on tmux 3.7c, run from outside tmux, against a session with one other live window:
+
+```sh
+tmux display-message -p -t 'firstmate:no-such-window' '#{pane_pid}'
+```
+
+This exits 0 and prints the pid of the session's active pane - a different window's shell - rather than failing; the `=session:=window` exact-match form falls back the same way.
+`send-keys`, `capture-pane`, and `list-panes` correctly fail with "can't find window" against the same gone target.
+So any raw `display-message` read against a recorded target - a liveness check, or a pane-fact read such as `#{pane_current_path}`, `#{pane_current_command}`, `#{pane_tty}`, or `#{pane_pid}` - misreports a gone window as alive and answers with another pane's facts, including in `bin/fm-teardown.sh`'s no-`lsof` process-group reaper, where that other pane's pid can belong to quartermaster's own session.
+`fm_backend_tmux_target_exists` (`bin/backends/tmux.sh`) is the exact-membership check every such read now runs first; `bin/fm-teardown.sh`'s reaper additionally resolves `#{pane_pid}` through `list-panes -t`, which fails outright for a gone target, and refuses when the resolved pane equals its own `$TMUX_PANE`.
+
 ### Agent liveness name sources
 
 The earlier record that every harness is observed under its own `#{pane_current_command}` no longer holds and has been replaced by the per-harness evidence below.
