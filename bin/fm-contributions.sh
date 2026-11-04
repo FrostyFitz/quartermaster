@@ -62,7 +62,12 @@
 # next URL that still has a full observation reserve; only a genuine forge
 # failure or head change records an error.
 # API failure leaves error evidence; an expired or absent observation is not
-# silence. FM_CONTRIBUTIONS_MAX_AGE (default 900 seconds) bounds freshness.
+# silence. A read that fails with a secondary-rate-limit or 5xx/429 response
+# gets one bounded retry with a short backoff, still inside the per-read cap,
+# before it counts as a genuine failure. A genuine failure's recorded error
+# carries a short sanitized summary (HTTP status and message, no tokens) of
+# the real forge error alongside the generic text. FM_CONTRIBUTIONS_MAX_AGE
+# (default 900 seconds) bounds freshness.
 # A URL whose last good observation is merged or closed is final: it is
 # never re-read, stays fresh, and every owner's saved row converges on that
 # observation, with a stale error beside it cleared.
@@ -208,30 +213,73 @@ write_record() { # task record-json-file
   mv -f -- "$staged" "$file"
 }
 
+forge_retryable() { # err-file -> 0 iff the forge error looks transient
+  grep -qE 'HTTP[[:space:]]+(429|5[0-9][0-9])' "$1" 2>/dev/null \
+    || grep -qiE 'secondary rate limit|rate limit exceeded|abuse detection' "$1" 2>/dev/null
+}
+
+forge_sanitize_error() { # raw-stderr-file -> one safe line on stdout (never fails)
+  local file=$1 line
+  [ -s "$file" ] || return 0
+  line=$(grep -m1 -E 'HTTP[[:space:]]+[0-9]{3}' "$file" 2>/dev/null) \
+    || line=$(head -n1 "$file" 2>/dev/null) || line=''
+  printf '%s' "$line" | tr -d '\r\n' \
+    | sed -E 's/gh[oprsu]_[A-Za-z0-9]{20,}/[redacted]/g; s/github_pat_[A-Za-z0-9_]{20,}/[redacted]/g' \
+    | cut -c1-200
+}
+
 forge() {
-  local remaining rc=0 forge_err=${FORGE_ERR:-$TMP/forge.err} bound=5
+  local remaining rc=0 forge_err=${FORGE_ERR:-$TMP/forge-detail.err} bound=5 tries=0 summary
   # A cold az is a Python CLI whose startup alone is often 2-5s.
   [ "${FORGE_TOOL:-gh}" != az ] || bound=20
-  remaining=$((DEADLINE - $(date +%s)))
-  # The budget, not the forge, refused this read.
-  [ "$remaining" -gt 0 ] || { BUDGET_EXHAUSTED=1; : > "$TMP/budget-exhausted"; return 1; }
-  [ "$remaining" -le "$bound" ] || remaining=$bound
-  fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
-    "${FORGE_TOOL:-gh}" "$@" 2> "$forge_err" || rc=$?
-  # A kill at the read bound or the deadline is budget refusal too; only the
-  # forge's own nonzero exit is unavailable evidence.
-  if [ "$rc" -eq 124 ]; then
-    BUDGET_EXHAUSTED=1
-    : > "$TMP/budget-exhausted"
-  elif [ "$rc" -ne 0 ]; then
-    : > "$TMP/forge-unavailable"
-  fi
+  while :; do
+    tries=$((tries + 1))
+    remaining=$((DEADLINE - $(date +%s)))
+    # The budget, not the forge, refused this read.
+    [ "$remaining" -gt 0 ] || { BUDGET_EXHAUSTED=1; : > "$TMP/budget-exhausted"; return 1; }
+    [ "$remaining" -le "$bound" ] || remaining=$bound
+    rc=0
+    fm_run_timed "$remaining" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
+      "${FORGE_TOOL:-gh}" "$@" 2> "$forge_err" || rc=$?
+    [ "$rc" -ne 0 ] || { : > "$forge_err"; return 0; }
+    # A kill at the read bound or the deadline is budget refusal; only the
+    # forge's own nonzero exit is unavailable evidence, and only that kind
+    # gets a bounded retry: a transient secondary-rate-limit or 5xx/429
+    # response is usually gone a second later, so one short backoff keeps a
+    # healthy PR from becoming a captain-facing false alarm.
+    if [ "$rc" -eq 124 ]; then
+      BUDGET_EXHAUSTED=1
+      : > "$TMP/budget-exhausted"
+      return "$rc"
+    fi
+    if [ "$tries" -lt 2 ] && forge_retryable "$forge_err" \
+      && [ $((DEADLINE - $(date +%s))) -gt 1 ]; then
+      sleep 1
+      continue
+    fi
+    break
+  done
+  : > "$TMP/forge-unavailable"
+  summary=$(forge_sanitize_error "$forge_err")
+  : > "$forge_err"
+  [ -z "$summary" ] || printf '%s\n' "$summary" > "$forge_err"
   return "$rc"
 }
 
-wait_forges() { # background forge pids from one independent read wave
-  local pid rc=0
-  for pid in "$@"; do wait "$pid" || rc=1; done
+wait_forges() { # background "pid:errfile" pairs from one independent read wave
+  local pair pid errfile rc=0
+  for pair in "$@"; do
+    pid=${pair%%:*}
+    errfile=${pair#*:}
+    if ! wait "$pid"; then
+      rc=1
+      # The first wave member's sanitized error becomes this observation's
+      # detail; forge() already reduced it to one safe line.
+      if [ -s "$errfile" ] && [ ! -s "$TMP/forge-detail.err" ]; then
+        cp -- "$errfile" "$TMP/forge-detail.err"
+      fi
+    fi
+  done
   # A known failed parallel read is unavailable even if another read reached
   # the deadline. Only an otherwise successful wave cut short is unmeasured.
   if [ ! -e "$TMP/forge-unavailable" ] && [ -e "$TMP/budget-exhausted" ]; then
@@ -249,7 +297,7 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
   esac
   part=${url#https://github.com/}; number=${part##*/}; part=${part%/*}; kind=${part##*/}; part=${part%/*}
   case "$kind" in pull) endpoint="repos/$part/pulls/$number" ;; issues) endpoint="repos/$part/issues/$number" ;; *) return 1 ;; esac
-  rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable"
+  rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable" "$TMP/forge-detail.err"
   BUDGET_EXHAUSTED=0
   forge api "$endpoint" > "$TMP/core.json" || return 1
   jq -e '(.state == "open" or .state == "closed") and (.user.login | type == "string")' "$TMP/core.json" >/dev/null || return 1
@@ -267,11 +315,12 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
     local statuses_pid=$!
     FORGE_ERR="$TMP/repo.err" forge api "repos/$part" > "$TMP/repo.json" &
     local repo_pid=$!
-    wait_forges "$comments_pid" "$reviews_pid" "$inline_pid" "$checks_pid" "$statuses_pid" "$repo_pid" || return 1
+    wait_forges "$comments_pid:$TMP/comments.err" "$reviews_pid:$TMP/reviews.err" "$inline_pid:$TMP/inline.err" \
+      "$checks_pid:$TMP/checks.err" "$statuses_pid:$TMP/statuses.err" "$repo_pid:$TMP/repo.err" || return 1
     jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null || return 1
     forge pr view "$url" --json headRefOid,reviewDecision > "$TMP/after.json" || return 1
     after=$(jq -er .headRefOid "$TMP/after.json")
-    [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
+    [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge-detail.err"; return 1; }
     jq -n --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" \
       --slurpfile reviews "$TMP/reviews.json" --slurpfile inline "$TMP/inline.json" --slurpfile after "$TMP/after.json" --slurpfile checks "$TMP/checks.json" \
       --slurpfile statuses "$TMP/statuses.json" --slurpfile repo "$TMP/repo.json" '
@@ -297,7 +346,7 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
     local comments_pid=$!
     FORGE_ERR="$TMP/issue-events.err" forge api "repos/$part/issues/$number/events?per_page=100" --paginate --slurp > "$TMP/issue-events.json" &
     local events_pid=$!
-    wait_forges "$comments_pid" "$events_pid" || return 1
+    wait_forges "$comments_pid:$TMP/comments.err" "$events_pid:$TMP/issue-events.err" || return 1
     jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null || return 1
     jq -n --slurpfile timeline "$TMP/issue-events.json" --arg label "$label" --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" '
       $core[0] as $c | {state:$c.state,head:null,
@@ -330,7 +379,7 @@ observe_ado() { # canonical Azure DevOps URL -> normalized JSON
   org=$(fm_pr_ado_org_url "$path")
   project=${path#*/}; project=$(fm_pr_ado_decode "${project%%/*}")
   repository=$(fm_pr_ado_decode "${path##*/}")
-  rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable"
+  rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable" "$TMP/forge-detail.err"
   BUDGET_EXHAUSTED=0
   FORGE_TOOL=az forge repos pr show --id "$number" --org "$org" --only-show-errors -o json > "$TMP/core.json" || return 1
   fm_pr_ado_check_record "$path" "$number" < "$TMP/core.json" > "$TMP/core-checked.json" || return 1
@@ -342,12 +391,12 @@ observe_ado() { # canonical Azure DevOps URL -> normalized JSON
     --route-parameters "project=$project" "repositoryId=$repository" "pullRequestId=$number" \
     --org "$org" --api-version 7.1 --only-show-errors -o json > "$TMP/threads.json" &
   threads_pid=$!
-  wait_forges "$policies_pid" "$threads_pid" || return 1
+  wait_forges "$policies_pid:$TMP/policies.err" "$threads_pid:$TMP/threads.err" || return 1
   jq -e 'type == "array"' "$TMP/policies.json" >/dev/null || return 1
   jq -e 'type == "object" and (.value | type) == "array"' "$TMP/threads.json" >/dev/null || return 1
   FORGE_TOOL=az forge repos pr show --id "$number" --org "$org" --only-show-errors -o json > "$TMP/after.json" || return 1
   after=$(fm_pr_ado_check_record "$path" "$number" < "$TMP/after.json" | jq -er '.lastMergeSourceCommit.commitId') || return 1
-  [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge.err"; return 1; }
+  [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge-detail.err"; return 1; }
   jq -n --arg url "$url" --slurpfile core "$TMP/core-checked.json" --slurpfile policies "$TMP/policies.json" \
     --slurpfile threads "$TMP/threads.json" "$FM_PR_ADO_REVIEW_POLICY_JQ"'
     $core[0] as $c
@@ -497,6 +546,9 @@ poll() {
             pending:(($old.pending // []) + [$events[] | select(.token as $t | ($old.seen // [] | index($t)) == null)] | unique_by(.token))}' > "$TMP/row.json"
       else
         error='forge observation unavailable or changed during read'
+        if [ -s "$TMP/forge-detail.err" ]; then
+          error="$error: $(head -n1 "$TMP/forge-detail.err")"
+        fi
         jq --arg now "$NOW" --arg error "$error" '.checked_at=$now | .error=$error' "$old" > "$TMP/row.json"
       fi
       write_record "$task" "$TMP/row.json"
