@@ -277,5 +277,19 @@ pass "real tmux: fm_backend_target_exists rejects a missing session while anothe
 fm_backend_tmux_kill "$TARGET" || fail "fm_backend_tmux_kill on an already-dead target must stay best-effort (never fail)"
 pass "real tmux: kill removes the window and the readable session inventory authoritatively classifies it missing"
 
+# The pane-inspection helpers must not describe tmux's active-pane fallback for
+# a gone target: $TARGET is gone but $SESSION is still alive and has an active
+# pane tmux would otherwise silently substitute.
+if cp=$(fm_backend_tmux_current_path "$TARGET"); then
+  fail "fm_backend_tmux_current_path read a live neighbor's path ('$cp') for a gone window instead of failing"
+fi
+[ -z "$cp" ] || fail "fm_backend_tmux_current_path printed '$cp' for a gone window"
+if comm=$(fm_backend_tmux_current_command "$TARGET") && [ -n "$comm" ]; then
+  fail "fm_backend_tmux_current_command read a live neighbor's command ('$comm') for a gone window"
+fi
+fg=$(fm_backend_tmux_foreground_comms "$TARGET" 2>/dev/null)
+[ -z "$fg" ] || fail "fm_backend_tmux_foreground_comms read a live neighbor's foreground process ('$fg') for a gone window"
+pass "real tmux: current_path, current_command, and foreground_comms read empty for a gone window instead of a live neighbor's facts"
+
 cleanup_all
 trap - EXIT

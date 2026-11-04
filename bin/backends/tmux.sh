@@ -107,8 +107,11 @@ fm_backend_tmux_create_task() {  # <session> <window-name> <proj-abs> -> prints 
 
 # fm_backend_tmux_current_path: the live pane's current working directory, or
 # empty on any tmux error. Mirrors fm-spawn.sh's worktree-discovery poll:
-# `tmux display-message -p -t "$T" '#{pane_current_path}'`.
+# `tmux display-message -p -t "$T" '#{pane_current_path}'`. Tmux falls back to
+# the active window for a gone target rather than failing, so exact membership
+# is confirmed first - the same fix fm_backend_tmux_send_key needed.
 fm_backend_tmux_current_path() {  # <target>
+  fm_backend_tmux_target_exists "$1" || return 1
   tmux display-message -p -t "$1" '#{pane_current_path}' 2>/dev/null
 }
 
@@ -288,8 +291,11 @@ fm_backend_tmux_kill() {  # <target>
 # "sleep 30"` alone reports "sleep" because bash execs directly into it, but
 # a persisting parent script running `sleep` as a child reports the PARENT's
 # own name throughout; the value reverts to the shell's own name only once
-# the foreground command actually exits). Empty on any tmux error.
+# the foreground command actually exits). Empty on any tmux error, including
+# a target whose exact window membership no longer holds (tmux would
+# otherwise fall back to the active window rather than failing).
 fm_backend_tmux_current_command() {  # <target>
+  fm_backend_tmux_target_exists "$1" || return 1
   tmux display-message -p -t "$1" '#{pane_current_command}' 2>/dev/null
 }
 
@@ -319,12 +325,14 @@ fm_backend_tmux_current_command() {  # <target>
 # `pi-signed` wrapper and a `pi` engine in one group), so no launcher needs its
 # own special case here.
 #
-# Like fm_backend_tmux_current_command this is a RAW pane read: tmux answers an
-# absent target from the client's active window rather than failing, so callers
-# must confirm exact window membership first, exactly as the classifier below
-# does, or they will describe some other pane entirely.
+# Like fm_backend_tmux_current_command this would otherwise be a RAW pane
+# read: tmux answers an absent target from the client's active window rather
+# than failing, so exact window membership is confirmed first, exactly as the
+# classifier below needs - without it this would describe some other pane
+# entirely.
 fm_backend_tmux_foreground_comms() {  # <target>
   local target=$1 tty pid pgid tpgid comm
+  fm_backend_tmux_target_exists "$target" || return 0
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
   [ -n "$tty" ] || return 0
   LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null \
@@ -340,6 +348,7 @@ fm_backend_tmux_foreground_comms() {  # <target>
 # argv[0]; bin/fm-gemini-lib.sh owns what counts as evidence inside one.
 fm_backend_tmux_foreground_args() {  # <target>
   local target=$1 tty pid pgid tpgid comm args
+  fm_backend_tmux_target_exists "$target" || return 0
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
   [ -n "$tty" ] || return 0
   LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null \
@@ -353,6 +362,7 @@ fm_backend_tmux_foreground_args() {  # <target>
 
 fm_backend_tmux_foreground_pids() {  # <target>
   local target=$1 tty pid pgid tpgid comm
+  fm_backend_tmux_target_exists "$target" || return 0
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
   [ -n "$tty" ] || return 0
   LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null \
@@ -365,6 +375,7 @@ fm_backend_tmux_foreground_pids() {  # <target>
 
 fm_backend_tmux_foreground_argv0s() {  # <target>
   local target=$1 tty pid pgid tpgid comm args argv0
+  fm_backend_tmux_target_exists "$target" || return 0
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
   [ -n "$tty" ] || return 0
   LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null \
