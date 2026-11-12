@@ -71,8 +71,10 @@
 # A URL whose last good observation is merged or closed is final: it is
 # never re-read, stays fresh, and every owner's saved row converges on that
 # observation, with a stale error beside it cleared.
-# A genuine failure prints its unavailable line only when it starts an episode
-# (no prior owner has an error); a successful read ends the episode.
+# A genuine failure records its error on the first failed poll but prints its
+# unavailable line only on the second consecutive failed poll of that URL (the
+# record's fail_count), so a one-poll forge hiccup stays silent; a successful
+# read ends the episode and resets the count.
 # FM_CONTRIBUTIONS_NOW supplies an ISO UTC clock for tests, otherwise UTC now.
 # FM_CONTRIBUTIONS_READY_LABEL selects the equivalent triage label, default
 # ready-for-pr. Labels are matched case-insensitively and exactly.
@@ -262,8 +264,14 @@ forge() {
   : > "$TMP/forge-unavailable"
   summary=$(forge_sanitize_error "$forge_err")
   : > "$forge_err"
-  [ -z "$summary" ] || printf '%s\n' "$summary" > "$forge_err"
+  [ -n "$summary" ] || summary="${FORGE_TOOL:-gh} exited $rc with no error output"
+  printf '%s\n' "$summary" > "$forge_err"
   return "$rc"
+}
+
+observe_fail() { # reason: keep a cause for a failure that is not a forge read error
+  [ -s "$TMP/forge-detail.err" ] || printf '%s\n' "$1" > "$TMP/forge-detail.err"
+  return 1
 }
 
 wait_forges() { # background "pid:errfile" pairs from one independent read wave
@@ -300,9 +308,9 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
   rm -f -- "$TMP/budget-exhausted" "$TMP/forge-unavailable" "$TMP/forge-detail.err"
   BUDGET_EXHAUSTED=0
   forge api "$endpoint" > "$TMP/core.json" || return 1
-  jq -e '(.state == "open" or .state == "closed") and (.user.login | type == "string")' "$TMP/core.json" >/dev/null || return 1
+  jq -e '(.state == "open" or .state == "closed") and (.user.login | type == "string")' "$TMP/core.json" >/dev/null || observe_fail 'unexpected response shape for the PR or issue read' || return 1
   if [ "$kind" = pull ]; then
-    head=$(jq -er '.head.sha | select(test("^[a-fA-F0-9]{40}$"))' "$TMP/core.json") || return 1
+    head=$(jq -er '.head.sha | select(test("^[a-fA-F0-9]{40}$"))' "$TMP/core.json") || observe_fail 'PR read returned no valid head commit' || return 1
     FORGE_ERR="$TMP/comments.err" forge api "repos/$part/issues/$number/comments?per_page=100" --paginate --slurp > "$TMP/comments.json" &
     local comments_pid=$!
     FORGE_ERR="$TMP/reviews.err" forge api "$endpoint/reviews?per_page=100" --paginate --slurp > "$TMP/reviews.json" &
@@ -317,9 +325,9 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
     local repo_pid=$!
     wait_forges "$comments_pid:$TMP/comments.err" "$reviews_pid:$TMP/reviews.err" "$inline_pid:$TMP/inline.err" \
       "$checks_pid:$TMP/checks.err" "$statuses_pid:$TMP/statuses.err" "$repo_pid:$TMP/repo.err" || return 1
-    jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null || return 1
+    jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null || observe_fail 'unexpected response shape for the comments read' || return 1
     forge pr view "$url" --json headRefOid,reviewDecision > "$TMP/after.json" || return 1
-    after=$(jq -er .headRefOid "$TMP/after.json")
+    after=$(jq -er .headRefOid "$TMP/after.json") || observe_fail 'pr view returned no head commit' || return 1
     [ "$head" = "$after" ] || { printf 'head changed during observation\n' > "$TMP/forge-detail.err"; return 1; }
     jq -n --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" \
       --slurpfile reviews "$TMP/reviews.json" --slurpfile inline "$TMP/inline.json" --slurpfile after "$TMP/after.json" --slurpfile checks "$TMP/checks.json" \
@@ -339,7 +347,7 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
             | map(select(.user.login != $c.user.login and (.author_association | IN("OWNER","MEMBER","COLLABORATOR")))
               | {token:((._signal + ":") + (.id|tostring) + ":" + (.updated_at // .submitted_at // "") + ":" + (.state // "")),
                  type:._signal,source:.html_url,head:.commit_id,
-                 author:.user.login,body:(.body // "" | .[:500])}))}' > "$TMP/observation.json" || return 1
+                 author:.user.login,body:(.body // "" | .[:500])}))}' > "$TMP/observation.json" || observe_fail 'could not assemble the PR observation' || return 1
   else
     label=${FM_CONTRIBUTIONS_READY_LABEL:-ready-for-pr}
     FORGE_ERR="$TMP/comments.err" forge api "repos/$part/issues/$number/comments?per_page=100" --paginate --slurp > "$TMP/comments.json" &
@@ -347,7 +355,7 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
     FORGE_ERR="$TMP/issue-events.err" forge api "repos/$part/issues/$number/events?per_page=100" --paginate --slurp > "$TMP/issue-events.json" &
     local events_pid=$!
     wait_forges "$comments_pid:$TMP/comments.err" "$events_pid:$TMP/issue-events.err" || return 1
-    jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null || return 1
+    jq -e 'type == "array" and all(.[]; type == "array")' "$TMP/comments.json" >/dev/null || observe_fail 'unexpected response shape for the comments read' || return 1
     jq -n --slurpfile timeline "$TMP/issue-events.json" --arg label "$label" --slurpfile core "$TMP/core.json" --slurpfile comments "$TMP/comments.json" '
       $core[0] as $c | {state:$c.state,head:null,
         ready:any($c.labels[]; (.name | ascii_downcase) == ($label | ascii_downcase)),
@@ -356,7 +364,7 @@ observe() { # canonical GitHub or Azure DevOps URL -> normalized JSON
             | {token:("comment:" + (.id|tostring) + ":" + (.updated_at // "")),type:"comment",source:.html_url,
                head:null,author:.user.login,body:(.body // "" | .[:500])})
           + [$timeline[0][] | .[] | select(.event == "labeled" and (.label.name | ascii_downcase) == ($label | ascii_downcase))
-             | {token:("ready-for-pr:" + (.id | tostring)),type:"ready-for-pr",source:$c.html_url,head:null,body:"filed issue reached ready-for-pr"}])}' > "$TMP/observation.json" || return 1
+             | {token:("ready-for-pr:" + (.id | tostring)),type:"ready-for-pr",source:$c.html_url,head:null,body:"filed issue reached ready-for-pr"}])}' > "$TMP/observation.json" || observe_fail 'could not assemble the issue observation' || return 1
   fi
   validate_observation "$url" "$kind"
 }
@@ -365,7 +373,7 @@ validate_observation() { # canonical-url pull|issue
   jq_lib -ne --arg url "$1" --arg kind "$2" --slurpfile observed "$TMP/observation.json" '
     {schema:"fm-contributions.v1",task:"observation",records:[{url:$url,
       kind:(if $kind == "pull" then "pr" else "issue" end),pending:[],seen:[],observation:$observed[0]}]}
-    | valid_record' >/dev/null
+    | valid_record' >/dev/null || observe_fail 'observation failed validation'
 }
 
 # One Azure DevOps pull request, observed in the same three waves as a GitHub
@@ -479,14 +487,14 @@ settle_final() { # canonical-url task... : copy the URL's final observation to e
       write_record "$task" "$TMP/row.json"
     elif jq -e '(.observation.state | IN("merged","closed") | not) or .error != null' "$TMP/old.json" >/dev/null; then
       jq -n --slurpfile final "$TMP/final.json" --slurpfile old "$TMP/old.json" '
-        $old[0] + {observation:$final[0].observation,checked_at:$final[0].checked_at,error:null}' > "$TMP/row.json"
+        ($old[0] | del(.fail_count)) + {observation:$final[0].observation,checked_at:$final[0].checked_at,error:null}' > "$TMP/row.json"
       write_record "$task" "$TMP/row.json"
     fi
   done
 }
 
 poll() {
-  local task url old kind error observed
+  local task url old kind error observed fails
   local -a row
   acquire
   get_input
@@ -521,11 +529,14 @@ poll() {
     observed=0
     observe "$url" || observed=$?
     [ "$BUDGET_EXHAUSTED" -eq 0 ] || continue
-    # Wake once per failure episode: only when no owner has a prior error.
-    if [ "$observed" -ne 0 ] && jq -ne --slurpfile saved "$TMP/saved.json" --arg url "$url" --args \
-      'all($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
-        .error == null)' "${row[@]:1}" >/dev/null; then
-      printf 'contributions: observation unavailable for %s\n' "$url"
+    # Consecutive failed polls of this URL: the highest owner count, plus this one.
+    fails=0
+    if [ "$observed" -ne 0 ]; then
+      fails=$(jq -nr --slurpfile saved "$TMP/saved.json" --arg url "$url" --args \
+        '[$ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first
+          | select(. != null and .error != null) | (.fail_count // 1)] | (max // 0) + 1' "${row[@]:1}")
+      # Wake once per failure episode, on the second consecutive failed poll.
+      [ "$fails" -ne 2 ] || printf 'contributions: observation unavailable for %s\n' "$url"
     fi
     case "$url" in */issues/*) kind=issue ;; *) kind="pr" ;; esac
     for task in "${row[@]:1}"; do
@@ -536,7 +547,7 @@ poll() {
         // {url:$url,kind:$kind,checked_at:null,observation:null,verdict:null,seen:[],pending:[],notified:[]}' > "$old"
       if [ "$observed" -eq 0 ]; then
         jq -n --arg now "$NOW" --slurpfile old "$old" --slurpfile observation "$TMP/observation.json" '
-          $old[0] as $old | $observation[0] as $o
+          $old[0] | del(.fail_count) as $old | $observation[0] as $o
           | ($o.events + (if $o.ready == true and $old.observation.ready != true and (any($o.events[]; .type == "ready-for-pr") | not) then
               [{token:("ready-for-pr:" + $now),type:"ready-for-pr",source:$old.url,head:null,body:"filed issue reached ready-for-pr"}]
               else [] end)) as $events
@@ -549,7 +560,7 @@ poll() {
         if [ -s "$TMP/forge-detail.err" ]; then
           error="$error: $(head -n1 "$TMP/forge-detail.err")"
         fi
-        jq --arg now "$NOW" --arg error "$error" '.checked_at=$now | .error=$error' "$old" > "$TMP/row.json"
+        jq --arg now "$NOW" --arg error "$error" --argjson fails "$fails" '.checked_at=$now | .error=$error | .fail_count=$fails' "$old" > "$TMP/row.json"
       fi
       write_record "$task" "$TMP/row.json"
       publish_pending "$task" "$url" "$TMP/row.json"
