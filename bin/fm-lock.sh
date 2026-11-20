@@ -20,7 +20,19 @@
 # bin/fm-startup-network.sh compares that pid across its deferred sweeps; a dead
 # recorded pid is reclaimed and rewritten to this session's anchor.
 #
+# A live holder that has provably left the session that took the lock is
+# reclaimed automatically: Claude Code rewrites the sessionId in the holder's
+# own session record when /clear starts a new conversation (see
+# fm_session_lock_holder_reclaimable), so only a record that disagrees with the
+# sidecar counts. A missing or unreadable record keeps the refusal.
+#
 # Usage: fm-lock.sh           acquire; exit 1 unless ownership is verified
+#        fm-lock.sh takeover --confirm
+#                             manual fallback for a lock left behind by a
+#                             pre-/clear process. Prints the holder (pid, tty,
+#                             start time, session ids) and refuses without
+#                             --confirm, and when the holder's own record shows
+#                             it is still in the session that took the lock.
 #        fm-lock.sh status    print holder and liveness; always exits 0.
 #                             A held lock is not proof the holder is consuming
 #                             wakes. Machine-readable lock fields live on
@@ -182,12 +194,45 @@ confirm_own_lock() {  # <recorded-pid>
 refuse_live_owner() {  # <recorded-pid>
   local recorded
   if recorded=$(fm_session_lock_recorded_session_id "$STATE"); then
-    echo "error: another live firstmate session holds the lock (pid $1, session $recorded); operate read-only until resolved" >&2
+    echo "error: live harness pid $1 holds the lock (session $recorded): another session, or your own terminal from before /clear; if it is yours, run bin/fm-lock.sh takeover --confirm, otherwise operate read-only until resolved" >&2
   else
-    echo "error: another live firstmate session holds the lock (pid $1); operate read-only until resolved" >&2
+    echo "error: live harness pid $1 holds the lock: another session, or your own terminal from before /clear; if it is yours, run bin/fm-lock.sh takeover --confirm, otherwise operate read-only until resolved" >&2
   fi
   exit 1
 }
+
+# A holder is reclaimable on proof it left the recorded session; takeover also
+# accepts an undeterminable holder, never a provably live one.
+holder_reclaimable() {  # <pid>
+  local rc=0
+  fm_session_lock_holder_reclaimable "$STATE" "$1" && return 0
+  [ "$TAKEOVER" -eq 1 ] || return 1
+  fm_session_lock_holder_verdict "$STATE" "$1" || rc=$?
+  [ "$rc" -ne 1 ]
+}
+
+TAKEOVER=0
+if [ "${1:-}" = "takeover" ]; then
+  TAKEOVER=1
+  holder=$(cat "$LOCK" 2>/dev/null || true)
+  if fm_harness_pid_alive "$holder" && [ "$holder" != "$me" ] && ! fm_session_lock_owned_by_self "$STATE"; then
+    echo "lock holder: pid $holder, tty $(ps -o tty= -p "$holder" 2>/dev/null | tr -d ' '), started $(ps -o lstart= -p "$holder" 2>/dev/null | sed 's/^ *//')," \
+      "lock session $(fm_session_lock_recorded_session_id "$STATE" || echo unknown)," \
+      "holder's live session $(fm_session_lock_holder_record_id "$holder" || echo unknown)"
+    if [ "${2:-}" != "--confirm" ]; then
+      echo "error: takeover needs --confirm; first check that this holder is your own pre-/clear process and not another live session" >&2
+      exit 1
+    fi
+    rc=0
+    fm_session_lock_holder_verdict "$STATE" "$holder" || rc=$?
+    if [ "$rc" -eq 1 ]; then
+      echo "error: the holder's own session record still names the session that took the lock, so it is live; close that terminal and the lock frees itself" >&2
+      exit 1
+    fi
+  else
+    echo "lock: no other live holder to take over; acquiring normally"
+  fi
+fi
 
 if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
   old=$(cat "$LOCK" 2>/dev/null || true)
@@ -195,7 +240,7 @@ if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
     confirm_own_lock "$old"
     old=$(cat "$LOCK" 2>/dev/null || true)
   fi
-  if fm_harness_pid_alive "$old"; then
+  if fm_harness_pid_alive "$old" && ! holder_reclaimable "$old"; then
     refuse_live_owner "$old"
   fi
 fi
@@ -223,7 +268,8 @@ if [ -e "$LOCK" ] || [ -L "$LOCK" ]; then
     fm_session_lock_owned_by_self "$STATE" && confirm_own_lock "$old"
     old=$(cat "$LOCK" 2>/dev/null || true)
     if [ "$old" != "$me" ] && fm_harness_pid_alive "$old"; then
-      refuse_live_owner "$old"
+      holder_reclaimable "$old" || refuse_live_owner "$old"
+      echo "lock: reclaiming from pid $old, which is no longer in the session that took the lock (for example after /clear)"
     fi
   fi
 fi

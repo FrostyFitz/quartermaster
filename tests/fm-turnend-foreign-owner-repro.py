@@ -175,7 +175,7 @@ try:
     )
     print("second-session acquisition", "rc=" + str(acquisition.returncode), "stdout=" + repr(acquisition.stdout), "stderr=" + repr(acquisition.stderr), flush=True)
     require("lock_rc=1" in acquisition.stdout, "foreign session unexpectedly acquired the session lock")
-    require("another live firstmate session holds the lock" in acquisition.stderr, "lock refusal lost its ownership diagnostic")
+    require("holds the lock" in acquisition.stderr, "lock refusal lost its ownership diagnostic")
 
     auto = autoarm(env, "nonowner autoarm")
     require(auto.returncode == 0, "foreign-owner auto-arm must exit safely")
