@@ -1,0 +1,14 @@
+ok - session-lock e2e: a version-named session claims the home and arms supervision
+ok - session-lock e2e: a session parented by a harness-named daemon claims the home and arms supervision
+ok - session-lock e2e: a version-named session under a harness-named daemon keeps its own lock
+ok - session-lock: a same-session confirmation waits for the claim lock and refreshes a re-keyed id
+ok - session-lock: a waiting confirmation does not steal another session's lock
+ok - session-lock: a failed lock write restores the previous sidecar
+ok - session-lock: a failed lock write removes a newly created sidecar
+ok - session-lock: a verified reclaim keeps the new sidecar beside the new pid
+ok - session-lock: a holder whose record left the lock's session is reclaimed after /clear
+ok - session-lock: a holder still in the lock's session is refused
+ok - session-lock: a holder with no session record is refused
+ok - session-lock: takeover without --confirm shows the holder and changes nothing
+ok - session-lock: takeover --confirm takes a holder with no record
+ok - session-lock: takeover --confirm refuses a holder still in the lock's session
