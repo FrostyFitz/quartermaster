@@ -366,6 +366,12 @@ COMPLETE
 ```
 
 No live unattended Claude background session ran on the verifying machine: that topology is documented by the real process listings in issues #3902, #2314, #3398, and #4066, and the coverage above is the structural predicate plus those executable fixtures, not a live pass.
+Claude Code's `/clear` can leave the lock on a live process that is no longer in the session that took it (issue #27, seen on 2.1.328 as a new conversation in a `bg-spare` under the original terminal).
+Claude Code keeps `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/<pid>.json` for each process, and on 2.1.329 on Linux (2026-11-20) `/clear` in a disposable interactive session and in a `claude --bg` session each kept the same pid and rewrote that record's `sessionId` in place, matching the new `CLAUDE_CODE_SESSION_ID` in the next tool shell; no `bg-spare` handoff occurred, so the issue's two-process topology was not reproduced on that version.
+`bin/fm-lock.sh` therefore reclaims a live holder automatically only on that positive evidence: a trusted session of its own, a sidecar id, and a holder record whose pid matches and whose `sessionId` differs from the sidecar's; a missing or unreadable record, or one still naming the sidecar's session, keeps the live-owner refusal.
+`bin/fm-lock.sh takeover --confirm` is the manual fallback and refuses only a holder whose own record still names the sidecar's session.
+`tests/fm-session-lock-ancestry.test.sh` pins reclaim, both refusals, and takeover with and without `--confirm` against real fake-harness processes and fake session records.
+
 [`sessionstart-nudge.md`](../sessionstart-nudge.md#shared-wrapper-and-safety) owns the nudge wrapper's separate ancestry check and its redundant-nudge behavior after helper-chain recycling.
 `tests/fm-watch-arm.test.sh` runs real watcher and arm cycles against durable on-disk state to verify that a delivered reason survives until post-handling acknowledgement and stops replaying after acknowledgement, while an unrelated queue append cannot make a watcher cycle that delivered nothing look successful.
 The same suite ingests a keyed remote-secondmate parent reply through the real adapter, establishes the incremental OPEN DECISIONS cursor, interrupts supervision, and proves re-arm replays every unacknowledged queue row plus the still-open decision through the ordinary drain path.

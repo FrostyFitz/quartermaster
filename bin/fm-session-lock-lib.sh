@@ -243,6 +243,49 @@ fm_session_lock_same_session() {  # <state> [<ancestry-pids>]
   [ "$recorded" = "$trusted" ]
 }
 
+# --- the holder's own live session record ------------------------------------
+# Claude Code keeps ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/<pid>.json for
+# every running process, and rewrites its sessionId in place when /clear starts a
+# new conversation in that process (verified 2.1.329, interactive and --bg). A
+# holder whose record names a different session than the one that took the lock
+# has therefore left that session, and it has not re-claimed the lock: a running
+# quartermaster refreshes the sidecar on its first hook. Only a readable record
+# whose pid field matches counts; anything else is no evidence either way.
+
+# Print the sessionId in pid $1's Claude session record, or return 1.
+fm_session_lock_holder_record_id() {  # <pid>
+  local pid=$1 file id
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  file="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/sessions/$pid.json"
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  grep -q "\"pid\":${pid}[,}]" "$file" 2>/dev/null || return 1
+  id=$(sed -n 's/.*"sessionId":"\([A-Za-z0-9-]*\)".*/\1/p' "$file" 2>/dev/null | head -n 1)
+  [ -n "$id" ] || return 1
+  printf '%s\n' "$id"
+}
+
+# Verdict on live holder pid $2 of the lock in state dir $1: 0 = provably left
+# the session that took the lock (stale after /clear), 1 = provably still in it
+# (live), 2 = undeterminable (no sidecar or no usable record). Never guesses.
+fm_session_lock_holder_verdict() {  # <state> <pid>
+  local recorded held
+  recorded=$(fm_session_lock_recorded_session_id "$1") || return 2
+  held=$(fm_session_lock_holder_record_id "$2") || return 2
+  [ "$held" = "$recorded" ] && return 1
+  return 0
+}
+
+# True when this process's trusted Claude session may reclaim the lock held by
+# live harness pid $2 because that holder provably left the recorded session.
+# Without a trusted id of our own, or on any undeterminable verdict, false.
+fm_session_lock_holder_reclaimable() {  # <state> <pid>
+  local trusted rc=0
+  trusted=$(fm_session_lock_trusted_session_id) || return 1
+  fm_session_lock_holder_verdict "$1" "$2" || rc=$?
+  [ "$rc" -eq 0 ] || return 1
+  [ "$(fm_session_lock_holder_record_id "$2")" != "$trusted" ]
+}
+
 # Print the pid bin/fm-lock.sh records on lock line 1 for this session. For a
 # Claude session with a trusted id that is CLAUDE_PID, the model-loop process:
 # never the shared transient daemon and never a front-end that outlives the

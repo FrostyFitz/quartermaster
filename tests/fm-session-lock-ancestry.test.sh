@@ -733,7 +733,7 @@ expect_phase_foreign() {  # <dir> <n> <expected-arms> <owner-pid> <label>
   grep -q "OWNED BY ANOTHER LIVE SESSION.*lock owner pid $owner" "$dir/state/phase-$n/guard.out" \
     || fail "$label: the guard did not report the live owner $owner: $(cat "$dir/state/phase-$n/guard.out")"
   expect_code 1 "$(phase_value "$dir" "$n" lock.rc)" "$label: fm-lock.sh accepted a lock this session does not own"
-  grep -q "another live firstmate session holds the lock (pid $owner, session S1)" "$dir/state/phase-$n/lock.out" \
+  grep -q "live harness pid $owner holds the lock (session S1)" "$dir/state/phase-$n/lock.out" \
     || fail "$label: the refusal did not name the owner pid and recorded session: $(cat "$dir/state/phase-$n/lock.out")"
   [ "$(phase_value "$dir" "$n" lock-after)" = "$owner" ] || fail "$label: a non-owner rewrote the lock"
 }
@@ -1004,7 +1004,7 @@ SH
     || fail "the waiter overwrote the other session's sidecar to $(cat "$dir/state/.lock-session")"
   [ "$(tr -d '[:space:]' < "$dir/state/.lock")" = "$other_pid" ] \
     || fail "the waiter rewrote lock line 1 off the other live session"
-  grep -q "another live firstmate session holds the lock (pid $other_pid, session OTHER)" "$dir/state/confirm.out" \
+  grep -q "live harness pid $other_pid holds the lock (session OTHER)" "$dir/state/confirm.out" \
     || fail "the waiter did not refuse the other live owner: $(cat "$dir/state/confirm.out")"
   pass "session-lock: a waiting confirmation does not steal another session's lock"
 }
@@ -1099,6 +1099,90 @@ test_verified_reclaim_keeps_new_sidecar() {
   pass "session-lock: a verified reclaim keeps the new sidecar beside the new pid"
 }
 
+# --- /clear left the lock on a live pre-/clear process ------------------------
+# The holder is a real live fake claude whose own session record (the file
+# Claude Code keeps at $CLAUDE_CONFIG_DIR/sessions/<pid>.json) is the only
+# evidence the lock logic has about which session it is in. A new session S2
+# then runs fm-lock.sh, optionally as `takeover`.
+
+# <name> <record session id or "-" for no record> [fm-lock.sh args...]
+# Leaves $LC_DIR, $LC_HOLDER, $LC_RC, $LC_OUT, $LC_NEW_PID for the assertions.
+run_clear_fixture() {
+  local name=$1 record=$2 holder
+  shift 2
+  LC_DIR="$TMP_ROOT/clear-$name"
+  mkdir -p "$LC_DIR/state" "$LC_DIR/cfg/sessions"
+  "$NAMED_CLAUDE" -c 'while :; do sleep 0.2; done' &
+  holder=$!
+  BG_FIXTURE_PIDS+=("$holder")
+  LC_HOLDER=$holder
+  printf '%s\n' "$holder" > "$LC_DIR/state/.lock"
+  printf 'S1\n' > "$LC_DIR/state/.lock-session"
+  [ "$record" = - ] || printf '{"pid":%s,"sessionId":"%s","kind":"interactive"}\n' \
+    "$holder" "$record" > "$LC_DIR/cfg/sessions/$holder.json"
+  env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID CLAUDE_CONFIG_DIR="$LC_DIR/cfg" \
+    FM_HOME="$LC_DIR" FM_LOCK="$ROOT/bin/fm-lock.sh" \
+    "$NAMED_CLAUDE" -c '
+      CLAUDE_CODE_SESSION_ID=S2 CLAUDE_PID=$$ "$FM_LOCK" "$@" > "$FM_HOME/state/run.out" 2>&1
+      printf "%s\n" "$?" > "$FM_HOME/state/run.rc"
+      printf "%s\n" "$$" > "$FM_HOME/state/new-pid"
+    ' _ "$@"
+  LC_RC=$(tr -d '[:space:]' < "$LC_DIR/state/run.rc")
+  LC_OUT=$(cat "$LC_DIR/state/run.out")
+  LC_NEW_PID=$(tr -d '[:space:]' < "$LC_DIR/state/new-pid")
+}
+
+assert_clear_lock_kept() {  # <what>
+  [ "$LC_RC" != 0 ] || fail "$1: lock was handed over: $LC_OUT"
+  [ "$(tr -d '[:space:]' < "$LC_DIR/state/.lock")" = "$LC_HOLDER" ] || fail "$1: lock line 1 moved off the live holder"
+  [ "$(tr -d '[:space:]' < "$LC_DIR/state/.lock-session")" = S1 ] || fail "$1: sidecar was rewritten"
+}
+
+assert_clear_lock_taken() {  # <what>
+  expect_code 0 "$LC_RC" "$1: acquisition failed: $LC_OUT"
+  [ "$(tr -d '[:space:]' < "$LC_DIR/state/.lock")" = "$LC_NEW_PID" ] || fail "$1: lock line 1 is not the new session's pid"
+  [ "$(tr -d '[:space:]' < "$LC_DIR/state/.lock-session")" = S2 ] || fail "$1: sidecar is not the new session id"
+}
+
+test_clear_stale_holder_is_reclaimed() {
+  run_clear_fixture stale S1-rekeyed
+  assert_clear_lock_taken "stale holder"
+  case "$LC_OUT" in *reclaiming*) ;; *) fail "reclaim was not announced: $LC_OUT" ;; esac
+  pass "session-lock: a holder whose record left the lock's session is reclaimed after /clear"
+}
+
+test_clear_live_other_session_is_refused() {
+  run_clear_fixture live S1
+  assert_clear_lock_kept "live holder"
+  case "$LC_OUT" in *"takeover --confirm"*) ;; *) fail "refusal does not point at takeover: $LC_OUT" ;; esac
+  pass "session-lock: a holder still in the lock's session is refused"
+}
+
+test_clear_missing_record_is_refused() {
+  run_clear_fixture norecord -
+  assert_clear_lock_kept "holder with no record"
+  pass "session-lock: a holder with no session record is refused"
+}
+
+test_takeover_needs_confirm_and_shows_holder() {
+  run_clear_fixture takeover-bare - takeover
+  assert_clear_lock_kept "takeover without --confirm"
+  case "$LC_OUT" in *"lock holder: pid $LC_HOLDER, tty "*"lock session S1"*"--confirm"*) ;; *) fail "takeover did not show the holder and demand --confirm: $LC_OUT" ;; esac
+  pass "session-lock: takeover without --confirm shows the holder and changes nothing"
+}
+
+test_takeover_confirm_takes_an_undeterminable_holder() {
+  run_clear_fixture takeover-confirm - takeover --confirm
+  assert_clear_lock_taken "takeover --confirm"
+  pass "session-lock: takeover --confirm takes a holder with no record"
+}
+
+test_takeover_confirm_refuses_a_provably_live_holder() {
+  run_clear_fixture takeover-live S1 takeover --confirm
+  assert_clear_lock_kept "takeover of a live holder"
+  pass "session-lock: takeover --confirm refuses a holder still in the lock's session"
+}
+
 test_version_named_session_is_identified_on_both_platforms
 test_harness_at_namespace_pid1_is_examined
 test_ordinary_paths_are_never_harness_processes
@@ -1115,3 +1199,9 @@ test_same_session_confirmation_does_not_steal_after_wait
 test_failed_lock_write_restores_previous_sidecar
 test_failed_lock_write_removes_new_sidecar_when_none_existed
 test_verified_reclaim_keeps_new_sidecar
+test_clear_stale_holder_is_reclaimed
+test_clear_live_other_session_is_refused
+test_clear_missing_record_is_refused
+test_takeover_needs_confirm_and_shows_holder
+test_takeover_confirm_takes_an_undeterminable_holder
+test_takeover_confirm_refuses_a_provably_live_holder
